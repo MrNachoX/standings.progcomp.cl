@@ -1,6 +1,8 @@
 const CONTEST_API = "https://animeitor.naquadah.com.br/api/contest";
 const RUNS_SOCKET = "wss://animeitor.naquadah.com.br/api/allruns_ws";
 const TEAM_PREFIX_FILTER = "teamsoch";
+const THEME_STORAGE_KEY = "standings-theme";
+const DEFAULT_THEME = "dark";
 
 const penaltyPerWrongAnswer = { value: 20 };
 let problemIds = [];
@@ -13,6 +15,7 @@ let renderTimeoutId = null;
 let renderQueued = false;
 
 document.addEventListener("DOMContentLoaded", () => {
+  initThemeToggle();
   bootstrap().catch((err) => {
     console.error(err);
     setStatus("Contest load failed", "error");
@@ -21,6 +24,21 @@ document.addEventListener("DOMContentLoaded", () => {
     );
   });
 });
+
+function initThemeToggle() {
+  const toggle = document.getElementById("theme-toggle");
+  if (!toggle) return;
+  const savedTheme = getStoredTheme();
+  applyTheme(savedTheme);
+  updateToggleUI(toggle);
+  toggle.addEventListener("click", () => {
+    const nextTheme =
+      document.body.dataset.theme === "light" ? "dark" : "light";
+    applyTheme(nextTheme);
+    setStoredTheme(nextTheme);
+    updateToggleUI(toggle);
+  });
+}
 
 async function bootstrap() {
   await loadContest();
@@ -322,4 +340,32 @@ function requestRender(immediate = false) {
     renderTimeoutId = null;
     renderStandings();
   }, RENDER_DEBOUNCE_MS);
+}
+
+function applyTheme(theme) {
+  const nextTheme = theme === "light" ? "light" : DEFAULT_THEME;
+  document.body.dataset.theme = nextTheme;
+}
+
+function getStoredTheme() {
+  try {
+    return localStorage.getItem(THEME_STORAGE_KEY) || DEFAULT_THEME;
+  } catch (error) {
+    console.warn("Unable to read theme preference", error);
+    return DEFAULT_THEME;
+  }
+}
+
+function setStoredTheme(theme) {
+  try {
+    localStorage.setItem(THEME_STORAGE_KEY, theme);
+  } catch (error) {
+    console.warn("Unable to persist theme preference", error);
+  }
+}
+
+function updateToggleUI(button) {
+  const isLight = document.body.dataset.theme === "light";
+  button.textContent = isLight ? "☾" : "☀";
+  button.setAttribute("aria-pressed", String(isLight));
 }

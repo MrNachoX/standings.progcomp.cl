@@ -1,6 +1,11 @@
 :root {
   color-scheme: light dark;
-  --bg: #0c1018;
+  --page-bg: radial-gradient(
+    circle at top,
+    #141b27 0%,
+    #05070a 45%,
+    #000 100%
+  );
   --card-bg: #141b27;
   --table-header: #1e2735;
   --accent: #5ef2b5;
@@ -13,6 +18,17 @@
     "Segoe UI", sans-serif;
 }
 
+body[data-theme="light"] {
+  --page-bg: radial-gradient(circle at top, #ffffff 0%, #f5f6fb 60%, #edf1f9 100%);
+  --card-bg: #ffffff;
+  --table-header: #f3f5fb;
+  --accent: #2563eb;
+  --accent-muted: rgba(37, 99, 235, 0.12);
+  --text: #0c111d;
+  --text-muted: #5f6b7b;
+  --danger: #d53030;
+}
+
 *,
 *::before,
 *::after {
@@ -22,7 +38,7 @@
 body {
   margin: 0;
   min-height: 100vh;
-  background: radial-gradient(circle at top, #141b27 0%, #05070a 45%, #000 100%);
+  background: var(--page-bg);
   color: var(--text);
   padding: 2rem clamp(1rem, 3vw, 3rem) 4rem;
 }
@@ -33,6 +49,30 @@ body {
   justify-content: space-between;
   gap: 1.5rem;
   align-items: flex-end;
+}
+
+.theme-toggle {
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: transparent;
+  color: var(--text);
+  font-size: 1.1rem;
+  border-radius: 999px;
+  padding: 0.4rem 0.9rem;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease, border 0.2s ease;
+  align-self: flex-start;
+}
+
+body[data-theme="light"] .theme-toggle {
+  border-color: rgba(12, 17, 29, 0.15);
+}
+
+.theme-toggle:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+body[data-theme="light"] .theme-toggle:hover {
+  background: rgba(0, 0, 0, 0.04);
 }
 
 .eyebrow {
