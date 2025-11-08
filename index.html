@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Competitive Programming Standings</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <div>
+        <p class="eyebrow">Live ICPC Feed</p>
+        <h1 id="contest-name">Loading contest…</h1>
+      </div>
+      <div class="meta">
+        <div>
+          <p class="meta-label">Score freeze</p>
+          <p class="meta-value" id="freeze-time">--</p>
+        </div>
+        <div>
+          <p class="meta-label">Max time</p>
+          <p class="meta-value" id="max-time">--</p>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <section class="standings-card">
+        <div class="standings-head">
+          <h2>Standings</h2>
+          <div id="status-pill" class="status-pill">Connecting…</div>
+        </div>
+        <div class="table-wrapper">
+          <table id="standings-table">
+            <thead>
+              <tr id="standings-header"></tr>
+            </thead>
+            <tbody id="standings-body">
+              <tr>
+                <td colspan="8" class="placeholder">
+                  Loading teams from the contest API…
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <template id="team-row-template">
+      <tr>
+        <td class="col-rank"></td>
+        <td class="col-team">
+          <p class="team-name"></p>
+          <p class="team-school"></p>
+        </td>
+        <td class="col-solved"></td>
+        <td class="col-penalty"></td>
+      </tr>
+    </template>
+
+    <script src="javascript.js" type="module"></script>
+  </body>
+</html>

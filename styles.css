@@ -1,0 +1,218 @@
+:root {
+  color-scheme: light dark;
+  --bg: #0c1018;
+  --card-bg: #141b27;
+  --table-header: #1e2735;
+  --accent: #5ef2b5;
+  --accent-muted: rgba(94, 242, 181, 0.2);
+  --text: #eef2f8;
+  --text-muted: #8a96a8;
+  --danger: #ff6b6b;
+  --pending: #ffd166;
+  font-family: "Space Grotesk", system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", sans-serif;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: radial-gradient(circle at top, #141b27 0%, #05070a 45%, #000 100%);
+  color: var(--text);
+  padding: 2rem clamp(1rem, 3vw, 3rem) 4rem;
+}
+
+.site-header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 1.5rem;
+  align-items: flex-end;
+}
+
+.eyebrow {
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin: 0 0 0.5rem;
+}
+
+h1 {
+  margin: 0;
+  font-size: clamp(2rem, 3vw, 3rem);
+}
+
+.meta {
+  display: flex;
+  gap: 1.5rem;
+  text-align: right;
+}
+
+.meta-label {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+}
+
+.meta-value {
+  margin: 0.25rem 0 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+main {
+  margin-top: 2rem;
+  display: grid;
+  gap: 1.5rem;
+}
+
+.standings-card {
+  background: var(--card-bg);
+  border-radius: 1.5rem;
+  padding: 1.75rem;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  box-shadow: 0 30px 60px rgba(0, 0, 0, 0.45);
+}
+
+.standings-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+
+.standings-head h2 {
+  margin: 0;
+  font-size: 1.2rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.status-pill {
+  padding: 0.4rem 1rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+}
+
+.status-pill.online {
+  background: var(--accent-muted);
+  color: var(--accent);
+}
+
+.status-pill.error {
+  background: rgba(255, 107, 107, 0.15);
+  color: var(--danger);
+}
+
+.table-wrapper {
+  overflow: auto;
+  margin-top: 1.5rem;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 600px;
+}
+
+thead tr {
+  background: var(--table-header);
+}
+
+th,
+td {
+  padding: 0.9rem 1rem;
+  text-align: left;
+  font-size: 0.95rem;
+}
+
+th {
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+tbody tr {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+tbody tr:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.placeholder {
+  text-align: center;
+  color: var(--text-muted);
+  padding: 2rem;
+}
+
+.team-name {
+  margin: 0;
+  font-weight: 600;
+}
+
+.team-school {
+  margin: 0.1rem 0 0;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.problem-cell {
+  text-align: center;
+  font-weight: 600;
+  border-radius: 0.6rem;
+  min-width: 3rem;
+}
+
+.problem-cell.pending {
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-muted);
+}
+
+.problem-cell.solved {
+  background: var(--accent-muted);
+  color: var(--accent);
+}
+
+.problem-cell.failed {
+  background: rgba(255, 107, 107, 0.15);
+  color: var(--danger);
+}
+
+.problem-cell span {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+@media (max-width: 768px) {
+  body {
+    padding: 1.5rem 1rem 3rem;
+  }
+
+  .meta {
+    width: 100%;
+    justify-content: space-between;
+    text-align: left;
+  }
+
+  th,
+  td {
+    padding: 0.6rem 0.5rem;
+  }
+}
