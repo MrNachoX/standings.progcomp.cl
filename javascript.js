@@ -1,6 +1,7 @@
-const CONTEST_API = "https://animeitor.naquadah.com.br/api/contest";
-const RUNS_SOCKET = "wss://animeitor.naquadah.com.br/api/allruns_ws";
-const TEAM_PREFIX_FILTER = "team";
+const CONTEST_API_BASE = "https://animeitor.naquadah.com.br/api/contest";
+const RUNS_SOCKET_BASE = "wss://animeitor.naquadah.com.br/api/allruns_ws";
+const CONTEST_IDS = [null, "ccl"];
+const DEFAULT_CONTEST_ID = CONTEST_IDS[0];
 const TEAM_FILTER_PARAM = "teams";
 const FILTER_VISIBILITY_STORAGE_KEY = "standings-filter-hidden";
 const THEME_STORAGE_KEY = "standings-theme";
@@ -9,6 +10,7 @@ const DEFAULT_THEME = "dark";
 const penaltyPerWrongAnswer = { value: 20 };
 let problemIds = [];
 let contestMeta = null;
+let activeContestIds = [];
 const teamState = new Map();
 const selectedTeamPrefixes = new Set();
 let teamFilterOptions = [];
@@ -16,8 +18,8 @@ let filterPanelEl = null;
 let filterToggleBtn = null;
 let filterContainerEl = null;
 let filtersHidden = false;
-let socket;
-let reconnectTimer;
+const contestSockets = new Map();
+const contestReconnectTimers = new Map();
 const RENDER_DEBOUNCE_MS = 200;
 let renderTimeoutId = null;
 let renderQueued = false;
@@ -56,18 +58,47 @@ async function bootstrap() {
 
 async function loadContest() {
   setStatus("Fetching contest…");
-  const response = await fetch(CONTEST_API);
-  if (!response.ok) {
-    throw new Error(`Contest API responded with ${response.status}`);
+  const contestPayloads = await Promise.all(
+    CONTEST_IDS.map(async (contestId) => {
+      try {
+        const meta = await fetchContestMeta(contestId);
+        return { contestId, meta };
+      } catch (error) {
+        console.error(
+          `Failed to load contest ${formatContestLabel(contestId)}`,
+          error
+        );
+        return null;
+      }
+    })
+  );
+
+  const loadedContests = contestPayloads.filter(Boolean);
+  if (!loadedContests.length) {
+    throw new Error("Contest API responded with errors");
   }
 
-  contestMeta = await response.json();
+  activeContestIds = loadedContests.map((entry) => entry.contestId);
+  const primaryContest =
+    loadedContests.find(
+      (entry) => entry.contestId === DEFAULT_CONTEST_ID
+    ) ?? loadedContests[0];
+
+  contestMeta = primaryContest.meta;
   penaltyPerWrongAnswer.value = contestMeta.penalty_per_wrong_answer ?? 20;
-  problemIds = buildProblemIds(contestMeta.number_problems);
+
+  const maxProblems = loadedContests.reduce((max, entry) => {
+    const total = Number(entry.meta?.number_problems) || 0;
+    return Math.max(max, total);
+  }, 0);
+  problemIds = buildProblemIds(maxProblems);
 
   populateHero(contestMeta);
   renderHeader();
-  hydrateTeams(contestMeta.teams);
+  const mergedTeams = mergeContestTeams(
+    loadedContests.map((entry) => entry.meta)
+  );
+  hydrateTeams(mergedTeams);
   requestRender(true);
 }
 
@@ -83,9 +114,7 @@ function populateHero(contest) {
 
 function hydrateTeams(teams) {
   teamState.clear();
-  const teamList = Object.values(teams ?? {}).filter((team) =>
-    shouldIncludeTeam(team.login)
-  );
+  const teamList = Object.values(teams ?? {});
 
   for (const team of teamList) {
     teamState.set(team.login, {
@@ -99,6 +128,49 @@ function hydrateTeams(teams) {
   }
 
   updateTeamFilterOptionsFromState();
+}
+
+function mergeContestTeams(contests = []) {
+  const merged = {};
+  contests.forEach((contest) => {
+    Object.entries(contest?.teams ?? {}).forEach(([login, team]) => {
+      if (!merged[login]) {
+        merged[login] = team;
+      }
+    });
+  });
+  return merged;
+}
+
+async function fetchContestMeta(contestId) {
+  const url = buildContestApiUrl(contestId);
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(
+      `Contest API (${formatContestLabel(contestId)}) responded with ${response.status}`
+    );
+  }
+  return response.json();
+}
+
+function buildContestApiUrl(contestId) {
+  return contestId ? `${CONTEST_API_BASE}?contest=${contestId}` : CONTEST_API_BASE;
+}
+
+function buildRunsSocketUrl(contestId) {
+  return contestId ? `${RUNS_SOCKET_BASE}?contest=${contestId}` : RUNS_SOCKET_BASE;
+}
+
+function formatContestLabel(contestId) {
+  return contestId ?? "default";
+}
+
+function contestKey(contestId) {
+  return contestId ?? "__default__";
+}
+
+function isContestActive(contestId) {
+  return activeContestIds.some((id) => id === contestId);
 }
 
 function createProblemState() {
@@ -215,11 +287,18 @@ function compareTeams(a, b) {
 }
 
 function connectSocket() {
-  if (!contestMeta) return;
-  clearTimeout(reconnectTimer);
-
+  if (!activeContestIds.length) return;
   setStatus("Connecting…");
-  socket = new WebSocket(RUNS_SOCKET);
+  activeContestIds.forEach((contestId) => connectContestSocket(contestId));
+}
+
+function connectContestSocket(contestId) {
+  const key = contestKey(contestId);
+  clearTimeout(contestReconnectTimers.get(key));
+  contestReconnectTimers.delete(key);
+
+  const socket = new WebSocket(buildRunsSocketUrl(contestId));
+  contestSockets.set(key, socket);
 
   socket.addEventListener("open", () => setStatus("Live", "online"));
   socket.addEventListener("message", (event) => {
@@ -231,21 +310,27 @@ function connectSocket() {
       console.error("Could not parse run payload", error);
     }
   });
-  socket.addEventListener("close", () => scheduleReconnect());
+  socket.addEventListener("close", () => {
+    contestSockets.delete(key);
+    scheduleReconnect(contestId);
+  });
   socket.addEventListener("error", () => {
     setStatus("Feed error", "error");
     socket.close();
   });
 }
 
-function scheduleReconnect() {
+function scheduleReconnect(contestId) {
+  if (!isContestActive(contestId)) return;
+  const key = contestKey(contestId);
+  clearTimeout(contestReconnectTimers.get(key));
   setStatus("Reconnecting…");
-  reconnectTimer = setTimeout(connectSocket, 4000);
+  const timer = setTimeout(() => connectContestSocket(contestId), 4000);
+  contestReconnectTimers.set(key, timer);
 }
 
 function processRun(run) {
   if (!run || !run.team_login) return;
-  if (!shouldIncludeTeam(run.team_login)) return;
   const team = teamState.get(run.team_login);
   if (!team) return;
 
@@ -419,11 +504,6 @@ function createTrieNode() {
 
 function stripTrailingDigits(value = "") {
   return value.replace(/\d+$/, "");
-}
-
-function shouldIncludeTeam(login = "") {
-  if (!TEAM_PREFIX_FILTER) return true;
-  return login?.startsWith(TEAM_PREFIX_FILTER);
 }
 
 function isTeamVisible(login = "") {
