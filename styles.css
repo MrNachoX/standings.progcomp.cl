@@ -324,6 +324,24 @@ tbody tr:hover {
   color: var(--text-muted);
 }
 
+.team-info {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.team-flag {
+  width: 1.5rem;
+  height: 1rem;
+  border-radius: 0.2rem;
+  object-fit: cover;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.15);
+}
+
+body[data-theme="light"] .team-flag {
+  box-shadow: 0 0 0 1px rgba(12, 17, 29, 0.15);
+}
+
 .problem-cell {
   text-align: center;
   font-weight: 600;

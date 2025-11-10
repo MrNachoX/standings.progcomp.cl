@@ -2,6 +2,16 @@ const CONTEST_API_BASE = "https://animeitor.naquadah.com.br/api/contest";
 const RUNS_SOCKET_BASE = "wss://animeitor.naquadah.com.br/api/allruns_ws";
 const CONTEST_IDS = [null, "ccl"];
 const DEFAULT_CONTEST_ID = CONTEST_IDS[0];
+const FLAG_CDN_BASE = "https://cdn.jsdelivr.net/npm/flag-icons/flags/4x3";
+const FLAG_FILE_FORMAT = "svg";
+const FLAG_OVERRIDES = {
+  ch: "cl", // Chile
+  el: "sv", // El Salvador
+  ab: "ag", // Antigua and Barbuda
+  dr: "do", // Dominican Republic
+  vz: "ve", // Venezuela
+  pa: "pe", // Peru
+};
 const TEAM_FILTER_PARAM = "teams";
 const FILTER_VISIBILITY_STORAGE_KEY = "standings-filter-hidden";
 const THEME_STORAGE_KEY = "standings-theme";
@@ -13,6 +23,7 @@ let contestMeta = null;
 let activeContestIds = [];
 const teamState = new Map();
 const selectedTeamPrefixes = new Set();
+const flagAssetCache = new Map();
 let teamFilterOptions = [];
 let filterPanelEl = null;
 let filterToggleBtn = null;
@@ -114,13 +125,16 @@ function populateHero(contest) {
 
 function hydrateTeams(teams) {
   teamState.clear();
-  const teamList = Object.values(teams ?? {});
+  const teamList = Object.values(teams ?? {}).filter((team) =>
+    shouldIncludeTeam(team.login)
+  );
 
   for (const team of teamList) {
     teamState.set(team.login, {
       login: team.login,
       name: team.name,
       school: team.escola,
+      countryCode: extractCountryCodeFromString(team.login),
       solved: 0,
       penalty: 0,
       problems: createProblemState(),
@@ -171,6 +185,93 @@ function contestKey(contestId) {
 
 function isContestActive(contestId) {
   return activeContestIds.some((id) => id === contestId);
+}
+
+function extractCountryCodeFromString(value = "") {
+  if (!value) return null;
+  const trimmed = String(value).trim();
+  const match = trimmed.match(/([a-zA-Z]{2})(?=\d*$)/);
+  if (match) {
+    return match[1].toLowerCase();
+  }
+  const trailingLetters = trimmed.replace(/[^a-zA-Z]/g, "");
+  if (trailingLetters.length >= 2) {
+    return trailingLetters.slice(-2).toLowerCase();
+  }
+  return null;
+}
+
+function createFlagElement(countryCode) {
+  const resolvedCode = resolveFlagCode(countryCode);
+  if (!resolvedCode) return null;
+  const img = document.createElement("img");
+  img.className = "team-flag";
+  img.alt = `${resolvedCode.toUpperCase()} flag`;
+  img.loading = "lazy";
+  img.decoding = "async";
+  img.referrerPolicy = "no-referrer";
+  attachFlagAsset(img, resolvedCode);
+  return img;
+}
+
+function resolveFlagCode(countryCode) {
+  if (!countryCode) return null;
+  const normalized = countryCode.toLowerCase();
+  return FLAG_OVERRIDES[normalized] ?? normalized;
+}
+
+function attachFlagAsset(img, resolvedCode) {
+  const cached = flagAssetCache.get(resolvedCode);
+  if (cached?.readyUrl) {
+    img.src = cached.readyUrl;
+    return;
+  }
+
+  const loader =
+    cached?.promise ??
+    fetchFlagAsset(resolvedCode).then(
+      (objectUrl) => {
+        flagAssetCache.set(resolvedCode, { readyUrl: objectUrl });
+        return objectUrl;
+      },
+      (error) => {
+        console.error(`Failed to load flag for ${resolvedCode}`, error);
+        flagAssetCache.delete(resolvedCode);
+        throw error;
+      }
+    );
+
+  if (!cached?.promise) {
+    flagAssetCache.set(resolvedCode, { promise: loader });
+  }
+
+  loader
+    .then((objectUrl) => {
+      if (img.isConnected) {
+        img.src = objectUrl;
+      }
+    })
+    .catch(() => {
+      if (img.isConnected) {
+        img.remove();
+      }
+    });
+}
+
+function fetchFlagAsset(resolvedCode) {
+  const url = buildFlagUrl(resolvedCode);
+  return fetch(url).then((response) => {
+    if (!response.ok) {
+      throw new Error(`Flag CDN responded with ${response.status}`);
+    }
+    return response
+      .blob()
+      .then((blob) => URL.createObjectURL(blob));
+  });
+}
+
+function buildFlagUrl(resolvedCode) {
+  return `${FLAG_CDN_BASE}/${resolvedCode}.${FLAG_FILE_FORMAT}`;
 }
 
 function createProblemState() {
@@ -230,13 +331,20 @@ function renderStandings() {
     appendCell(tr, "col-rank", index + 1);
     const teamCell = document.createElement("td");
     teamCell.classList.add("col-team");
+    const teamInfo = document.createElement("div");
+    teamInfo.className = "team-info";
     const teamName = document.createElement("p");
     teamName.className = "team-name";
     teamName.textContent = truncate(team.name, 60);
     const teamSchool = document.createElement("p");
     teamSchool.className = "team-school";
     teamSchool.textContent = truncate(team.school, 50);
-    teamCell.append(teamName, teamSchool);
+    const flagImage = createFlagElement(team.countryCode);
+    if (flagImage) {
+      teamInfo.appendChild(flagImage);
+    }
+    teamInfo.appendChild(teamName);
+    teamCell.append(teamInfo, teamSchool);
     tr.appendChild(teamCell);
 
     appendCell(tr, "col-solved", team.solved);
@@ -331,6 +439,7 @@ function scheduleReconnect(contestId) {
 
 function processRun(run) {
   if (!run || !run.team_login) return;
+  if (!shouldIncludeTeam(run.team_login)) return;
   const team = teamState.get(run.team_login);
   if (!team) return;
 
@@ -504,6 +613,10 @@ function createTrieNode() {
 
 function stripTrailingDigits(value = "") {
   return value.replace(/\d+$/, "");
+}
+
+function shouldIncludeTeam(login = "") {
+  return true;
 }
 
 function isTeamVisible(login = "") {
@@ -695,7 +808,7 @@ function parseFilterFromUrl() {
   try {
     const params = new URLSearchParams(window.location.search);
     const raw = params.get(TEAM_FILTER_PARAM);
-    if (!raw) return [];
+    if (!raw) return ["team"];
     return raw
       .split(",")
       .map((value) => value.trim())
