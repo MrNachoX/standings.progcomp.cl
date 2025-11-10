@@ -37,7 +37,29 @@
       <section class="standings-card">
         <div class="standings-head">
           <h2>Standings</h2>
-          <div id="status-pill" class="status-pill">Connecting…</div>
+          <div class="standings-pill-actions">
+            <button
+              id="filter-toggle"
+              class="filter-toggle"
+              type="button"
+              aria-pressed="false"
+              aria-expanded="true"
+              aria-controls="team-filter"
+            >
+              Filters ▼
+            </button>
+            <div id="status-pill" class="status-pill">Connecting…</div>
+          </div>
+        </div>
+        <div class="filter-panel" id="filter-panel">
+          <div class="filter-body">
+            <div
+              id="team-filter"
+              class="filter-checkboxes"
+              role="group"
+              aria-label="Filter standings by team prefix"
+            ></div>
+          </div>
         </div>
         <div class="table-wrapper">
           <table id="standings-table">

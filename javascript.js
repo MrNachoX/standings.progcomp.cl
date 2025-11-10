@@ -1,6 +1,8 @@
 const CONTEST_API = "https://animeitor.naquadah.com.br/api/contest";
 const RUNS_SOCKET = "wss://animeitor.naquadah.com.br/api/allruns_ws";
-const TEAM_PREFIX_FILTER = "teamsoch";
+const TEAM_PREFIX_FILTER = "team";
+const TEAM_FILTER_PARAM = "teams";
+const FILTER_VISIBILITY_STORAGE_KEY = "standings-filter-hidden";
 const THEME_STORAGE_KEY = "standings-theme";
 const DEFAULT_THEME = "dark";
 
@@ -8,6 +10,12 @@ const penaltyPerWrongAnswer = { value: 20 };
 let problemIds = [];
 let contestMeta = null;
 const teamState = new Map();
+const selectedTeamPrefixes = new Set();
+let teamFilterOptions = [];
+let filterPanelEl = null;
+let filterToggleBtn = null;
+let filterContainerEl = null;
+let filtersHidden = false;
 let socket;
 let reconnectTimer;
 const RENDER_DEBOUNCE_MS = 200;
@@ -16,6 +24,7 @@ let renderQueued = false;
 
 document.addEventListener("DOMContentLoaded", () => {
   initThemeToggle();
+  initTeamFilter();
   bootstrap().catch((err) => {
     console.error(err);
     setStatus("Contest load failed", "error");
@@ -88,6 +97,8 @@ function hydrateTeams(teams) {
       problems: createProblemState(),
     });
   }
+
+  updateTeamFilterOptionsFromState();
 }
 
 function createProblemState() {
@@ -130,7 +141,15 @@ function renderStandings() {
     return;
   }
 
-  const teams = [...teamState.values()].sort(compareTeams);
+  const teams = [...teamState.values()]
+    .filter((team) => isTeamVisible(team.login))
+    .sort(compareTeams);
+
+  if (!teams.length) {
+    showPlaceholder("No teams match the current filter.");
+    return;
+  }
+
   const fragment = document.createDocumentFragment();
 
   teams.forEach((team, index) => {
@@ -182,7 +201,7 @@ function buildProblemCell(problem = {}) {
     td.classList.add("failed");
     td.textContent = `-${problem.wrongAttempts}`;
   } else {
-    td.classList.add("pending");
+    td.classList.add("idle");
     td.textContent = "—";
   }
 
@@ -263,6 +282,7 @@ function processRun(run) {
       }
       break;
     default:
+      console.warn("Unknown verdict received:", verdict);
       break;
   }
 }
@@ -317,9 +337,103 @@ function truncate(value = "", max = 40) {
   return value.length > max ? `${value.slice(0, max - 1)}…` : value;
 }
 
+function updateTeamFilterOptionsFromState() {
+  const teamLogins = [...teamState.keys()];
+  const nextOptions = computeMaximalTeamPrefixes(teamLogins);
+  const optionsChanged = arraysDiffer(teamFilterOptions, nextOptions);
+  teamFilterOptions = nextOptions;
+  const selectionChanged = pruneSelectedPrefixes();
+
+  if (optionsChanged || selectionChanged) {
+    renderFilterCheckboxes();
+    persistFilterToUrl();
+    requestRender(true);
+  } else {
+    renderFilterCheckboxes();
+  }
+}
+
+function pruneSelectedPrefixes() {
+  if (!teamFilterOptions.length || !selectedTeamPrefixes.size) return false;
+  const allowed = new Set(teamFilterOptions);
+  let mutated = false;
+  for (const prefix of [...selectedTeamPrefixes]) {
+    if (!allowed.has(prefix)) {
+      selectedTeamPrefixes.delete(prefix);
+      mutated = true;
+    }
+  }
+  return mutated;
+}
+
+function arraysDiffer(prev = [], next = []) {
+  if (prev.length !== next.length) return true;
+  return prev.some((value, idx) => value !== next[idx]);
+}
+
+function computeMaximalTeamPrefixes(logins = []) {
+  const cleaned = logins
+    .map((login) => stripTrailingDigits(String(login ?? "")))
+    .map((login) => login.trim())
+    .filter(Boolean);
+
+  if (!cleaned.length) return [];
+
+  const trie = createTrieNode();
+  for (const login of cleaned) {
+    let node = trie;
+    for (const char of login) {
+      if (!node.children.has(char)) {
+        node.children.set(char, createTrieNode());
+      }
+      node = node.children.get(char);
+    }
+    node.terminalCount += 1;
+  }
+
+  const prefixes = [];
+  collectMaximalPrefixes(trie, "", prefixes);
+  return prefixes;
+}
+
+function collectMaximalPrefixes(node, prefix, store) {
+  if (prefix) {
+    const hasBranch = node.children.size >= 2;
+    const isTerminal = node.terminalCount > 0;
+    if (hasBranch || isTerminal) {
+      store.push(prefix);
+    }
+  }
+
+  for (const [char, child] of node.children) {
+    collectMaximalPrefixes(child, prefix + char, store);
+  }
+}
+
+function createTrieNode() {
+  return {
+    children: new Map(),
+    terminalCount: 0,
+  };
+}
+
+function stripTrailingDigits(value = "") {
+  return value.replace(/\d+$/, "");
+}
+
 function shouldIncludeTeam(login = "") {
   if (!TEAM_PREFIX_FILTER) return true;
   return login?.startsWith(TEAM_PREFIX_FILTER);
+}
+
+function isTeamVisible(login = "") {
+  if (!selectedTeamPrefixes.size) return true;
+  for (const prefix of selectedTeamPrefixes) {
+    if (login?.startsWith(prefix)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function requestRender(immediate = false) {
@@ -368,4 +482,187 @@ function updateToggleUI(button) {
   const isLight = document.body.dataset.theme === "light";
   button.textContent = isLight ? "☾" : "☀";
   button.setAttribute("aria-pressed", String(isLight));
+}
+
+function initTeamFilter() {
+  const urlSelection = parseFilterFromUrl();
+  selectedTeamPrefixes.clear();
+  urlSelection.forEach((prefix) => selectedTeamPrefixes.add(prefix));
+
+  filtersHidden = getStoredFilterVisibility();
+  filterPanelEl = document.getElementById("filter-panel");
+  filterToggleBtn = document.getElementById("filter-toggle");
+  applyFilterPanelState();
+  filterToggleBtn?.addEventListener("click", () => {
+    filtersHidden = !filtersHidden;
+    applyFilterPanelState();
+    setStoredFilterVisibility(filtersHidden);
+  });
+
+  filterContainerEl = document.getElementById("team-filter");
+  if (!filterContainerEl) return;
+
+  renderFilterCheckboxes();
+
+  filterContainerEl.addEventListener("change", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement) || target.type !== "checkbox") {
+      return;
+    }
+
+    const prefix = target.value;
+    if (!teamFilterOptions.includes(prefix)) return;
+
+    if (target.checked) {
+      selectedTeamPrefixes.add(prefix);
+    } else {
+      selectedTeamPrefixes.delete(prefix);
+    }
+
+    persistFilterToUrl();
+    requestRender(true);
+  });
+}
+
+function renderFilterCheckboxes() {
+  if (!filterContainerEl) return;
+  filterContainerEl.innerHTML = "";
+
+  if (!teamFilterOptions.length) {
+    const placeholder = document.createElement("p");
+    placeholder.className = "filter-placeholder";
+    placeholder.textContent = "Waiting for teams…";
+    filterContainerEl.appendChild(placeholder);
+    return;
+  }
+
+  const treeRoot = document.createElement("ul");
+  treeRoot.className = "filter-tree filter-tree-root";
+  const tree = buildPrefixTree(teamFilterOptions);
+  tree.forEach((node) => {
+    treeRoot.appendChild(createFilterTreeItem(node));
+  });
+  filterContainerEl.appendChild(treeRoot);
+}
+
+function buildPrefixTree(prefixes = []) {
+  const root = createPrefixTreeNode("");
+  const nodes = new Map();
+  nodes.set("", root);
+
+  const sorted = [...prefixes].sort((a, b) => {
+    if (a.length === b.length) {
+      return a.localeCompare(b);
+    }
+    return a.length - b.length;
+  });
+
+  sorted.forEach((prefix) => {
+    const node = createPrefixTreeNode(prefix);
+    const parent = findPrefixTreeParent(prefix, nodes);
+    parent.children.push(node);
+    nodes.set(prefix, node);
+  });
+
+  return root.children;
+}
+
+function findPrefixTreeParent(prefix, nodes) {
+  for (let idx = prefix.length - 1; idx >= 0; idx -= 1) {
+    const candidate = prefix.slice(0, idx);
+    if (nodes.has(candidate)) {
+      return nodes.get(candidate);
+    }
+  }
+  return nodes.get("");
+}
+
+function createPrefixTreeNode(value) {
+  return { value, children: [] };
+}
+
+function createFilterTreeItem(node) {
+  const li = document.createElement("li");
+  li.className = "filter-tree-item";
+
+  const label = document.createElement("label");
+  label.className = "filter-checkbox";
+
+  const checkbox = document.createElement("input");
+  checkbox.type = "checkbox";
+  checkbox.value = node.value;
+  checkbox.checked = selectedTeamPrefixes.has(node.value);
+
+  const text = document.createElement("span");
+  text.textContent = node.value;
+
+  label.append(checkbox, text);
+  li.appendChild(label);
+
+  if (node.children.length) {
+    const nested = document.createElement("ul");
+    nested.className = "filter-tree";
+    node.children.forEach((child) => {
+      nested.appendChild(createFilterTreeItem(child));
+    });
+    li.appendChild(nested);
+  }
+
+  return li;
+}
+
+function parseFilterFromUrl() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const raw = params.get(TEAM_FILTER_PARAM);
+    if (!raw) return [];
+    return raw
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean);
+  } catch (error) {
+    console.warn("Unable to read team filter from URL", error);
+    return [];
+  }
+}
+
+function persistFilterToUrl() {
+  const params = new URLSearchParams(window.location.search);
+  if (selectedTeamPrefixes.size) {
+    params.set(TEAM_FILTER_PARAM, [...selectedTeamPrefixes].join(","));
+  } else {
+    params.delete(TEAM_FILTER_PARAM);
+  }
+  const search = params.toString();
+  const nextUrl = `${window.location.pathname}${
+    search ? `?${search}` : ""
+  }${window.location.hash}`;
+  window.history.replaceState({}, "", nextUrl);
+}
+
+function applyFilterPanelState() {
+  if (!filterPanelEl || !filterToggleBtn) return;
+  filterPanelEl.classList.toggle("collapsed", filtersHidden);
+  const icon = filtersHidden ? "▲" : "▼";
+  filterToggleBtn.textContent = `Filters ${icon}`;
+  filterToggleBtn.setAttribute("aria-label", filtersHidden ? "Show filters" : "Hide filters");
+  filterToggleBtn.setAttribute("aria-pressed", String(filtersHidden));
+  filterToggleBtn.setAttribute("aria-expanded", String(!filtersHidden));
+}
+
+function getStoredFilterVisibility() {
+  try {
+    return localStorage.getItem(FILTER_VISIBILITY_STORAGE_KEY) === "true";
+  } catch (error) {
+    console.warn("Unable to read filter visibility preference", error);
+    return false;
+  }
+}
+
+function setStoredFilterVisibility(value) {
+  try {
+    localStorage.setItem(FILTER_VISIBILITY_STORAGE_KEY, String(Boolean(value)));
+  } catch (error) {
+    console.warn("Unable to persist filter visibility preference", error);
+  }
 }
