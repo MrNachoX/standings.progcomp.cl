@@ -295,21 +295,20 @@ function renderTeamFilter() {
       !regionInput.checked && selectedCountries.length > 0;
     block.appendChild(regionBox);
 
-    // Single-country regions (Brazil, Mexico) don't need country chips.
+    // Single-country regions (Brazil, Mexico) don't need a country list.
     if (countries.size > 1) {
       const chips = document.createElement("div");
-      chips.className = "country-chips";
+      chips.className = "country-list";
       const sortedCountries = [...countries].sort(([a], [b]) =>
         countryName(a).localeCompare(countryName(b))
       );
       for (const [country, count] of sortedCountries) {
         const box = buildFilterCheckbox(
           regionPrefix + country,
-          country.toUpperCase(),
+          countryName(country),
           count,
           country
         );
-        box.title = countryName(country);
         box.querySelector("input").checked =
           regionInput.checked || selectedPrefixes.has(regionPrefix + country);
         chips.appendChild(box);
@@ -622,15 +621,27 @@ function buildProblemCell(problem = {}) {
   const td = document.createElement("td");
   td.classList.add("problem-cell");
 
+  // Solve minute only, plus failed tries when there were any; details go in
+  // the tooltip to keep the 13 problem columns narrow.
+  const tries = problem.wrongAttempts;
+  const triesText = `${tries} wrong ${tries === 1 ? "try" : "tries"}`;
   if (problem.solved) {
     td.classList.add("solved");
-    td.innerHTML = `${formatMinutes(problem.time)}<span>+${problem.wrongAttempts}</span>`;
+    td.textContent = problem.time;
+    if (tries > 0) {
+      const span = document.createElement("span");
+      span.textContent = `+${tries}`;
+      td.appendChild(span);
+    }
+    td.title = `Solved at ${formatMinutes(problem.time)}, ${triesText}`;
   } else if (problem.pending) {
     td.classList.add("pending");
-    td.textContent = "Wait";
-  } else if (problem.wrongAttempts > 0) {
+    td.textContent = "?";
+    td.title = tries ? `Pending, ${triesText}` : "Pending";
+  } else if (tries > 0) {
     td.classList.add("failed");
-    td.textContent = `-${problem.wrongAttempts}`;
+    td.textContent = `-${tries}`;
+    td.title = triesText;
   } else {
     td.classList.add("idle");
     td.textContent = "—";

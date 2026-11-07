@@ -1,6 +1,6 @@
 :root {
   color-scheme: light;
-  --page-bg: #f3f5fa;
+  --page-bg: #ffffff;
   --card-bg: #ffffff;
   --table-header: #f3f5fb;
   --row-hover: #f7f8fc;
@@ -24,8 +24,8 @@
 
 body[data-theme="dark"] {
   color-scheme: dark;
-  --page-bg: #070a0f;
-  --card-bg: #121925;
+  --page-bg: #0d121b;
+  --card-bg: #0d121b;
   --table-header: #1e2735;
   --row-hover: #18202d;
   --border: rgba(255, 255, 255, 0.14);
@@ -55,7 +55,7 @@ body {
   min-height: 100vh;
   background: var(--page-bg);
   color: var(--text);
-  padding: 1.25rem clamp(1rem, 2vw, 2rem) 2rem;
+  padding: 1rem clamp(0.6rem, 1vw, 1rem) 2rem;
   font-size: 0.9rem;
 }
 
@@ -63,8 +63,8 @@ button {
   font: inherit;
 }
 
-/* Layout: title and filters on top, ranking and submissions below so both
-   lists start at the same height. */
+/* Layout: title and filters span the width; ranking and submissions sit
+   side by side below so both lists start at the same height. */
 
 .layout {
   display: grid;
@@ -98,40 +98,24 @@ button {
 }
 
 @media (min-width: 1101px) {
-  .layout.has-feed,
-  .layout.has-filters {
-    grid-template-columns: minmax(0, 1fr) 22rem;
-  }
-
-  .layout.has-filters.has-feed {
-    grid-template-areas:
-      "head filters"
-      "ranking feed";
-  }
-
-  .layout.has-filters:not(.has-feed) {
-    grid-template-areas:
-      "head filters"
-      "ranking ranking";
-  }
-
-  .layout.has-feed:not(.has-filters) {
+  .layout.has-feed {
+    grid-template-columns: minmax(0, 1fr) 17rem;
     grid-template-areas:
       "head head"
+      "filters filters"
       "ranking feed";
-  }
-
-  .area-head {
-    align-self: start;
   }
 }
 
+/* Sections sit directly on the page, separated by thin rules. */
 .card {
   min-width: 0;
-  background: var(--card-bg);
-  border: 1px solid var(--divider);
-  border-radius: 1rem;
-  padding: 1rem 1.25rem;
+}
+
+.filter-panel {
+  padding: 0.75rem 0 1rem;
+  border-top: 1px solid var(--divider);
+  border-bottom: 1px solid var(--divider);
 }
 
 .card-head {
@@ -206,7 +190,7 @@ h1 {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
-  margin-top: 1rem;
+  margin-top: 0.75rem;
 }
 
 .pill-button {
@@ -269,8 +253,12 @@ body:has(#qualify-toggle:checked) .qualify-note {
 
 .filter-panel {
   display: flex;
-  flex-direction: column;
-  gap: 0.9rem;
+  flex-wrap: wrap;
+  gap: 1rem 2.5rem;
+}
+
+.filter-panel .filter-group:first-child {
+  flex: 1 1 100%;
 }
 
 .filter-group {
@@ -305,24 +293,22 @@ body:has(#qualify-toggle:checked) .qualify-note {
 }
 
 .region-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.45rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(12.5rem, 1fr));
+  gap: 0.75rem 1.5rem;
 }
 
 .region-block > .filter-checkbox {
   font-weight: 600;
 }
 
-.country-chips {
+.country-list {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.2rem 0.75rem;
-  margin: 0.2rem 0 0 1.4rem;
-}
-
-.country-chips .filter-checkbox {
-  font-size: 0.8rem;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin: 0.25rem 0 0 0.45rem;
+  padding-left: 0.75rem;
+  border-left: 1px solid var(--border);
 }
 
 .filter-options {
@@ -333,6 +319,8 @@ body:has(#qualify-toggle:checked) .qualify-note {
 
 .filter-checkbox {
   display: inline-flex;
+  align-self: flex-start;
+  white-space: nowrap;
   align-items: center;
   gap: 0.35rem;
   font-size: 0.85rem;
@@ -423,8 +411,8 @@ tbody tr:hover td {
 }
 
 .col-team {
-  min-width: 11rem;
-  max-width: 17rem;
+  min-width: 9.5rem;
+  max-width: 13rem;
 }
 
 /* Narrow numeric/meta columns. */
@@ -463,7 +451,7 @@ td.col-penalty {
 }
 
 tbody tr.qualified td.col-rank {
-  box-shadow: inset 3px 0 0 var(--accent);
+  box-shadow: inset 3px 0 0 var(--yes);
 }
 
 td.col-slot {
@@ -534,22 +522,34 @@ tbody tr.guest td {
 
 td.col-women {
   color: var(--women);
-  font-size: 0.8rem;
+  font-size: 0.85rem;
 }
 
-.col-women.all-women {
-  font-weight: 600;
+/* ♀ comes from a thin fallback font; a stroke makes it read as bold. */
+td.col-women,
+th.col-women,
+.women-symbol {
+  font-weight: 700;
+  -webkit-text-stroke: 0.6px currentColor;
 }
 
-.col-women.none {
+td.col-women.none {
   color: var(--text-muted);
+  font-weight: 400;
+  -webkit-text-stroke: 0;
+}
+
+th.col-problem,
+td.problem-cell {
+  padding-left: 0.1rem;
+  padding-right: 0.1rem;
 }
 
 .problem-cell {
   text-align: center;
   font-weight: 600;
   border-radius: 0.5rem;
-  min-width: 2.6rem;
+  min-width: 2.2rem;
   font-size: 0.8rem;
 }
 
@@ -580,7 +580,7 @@ tbody td.problem-cell {
 
 .problem-cell span {
   display: block;
-  font-size: 0.7rem;
+  font-size: 0.65rem;
   font-weight: 500;
   color: var(--text-muted);
 }
@@ -591,6 +591,8 @@ tbody td.problem-cell {
   display: flex;
   flex-direction: column;
   align-self: start;
+  padding-left: 0.75rem;
+  border-left: 1px solid var(--divider);
   position: sticky;
   top: 1rem;
   max-height: calc(100vh - 2rem);
@@ -607,8 +609,8 @@ tbody td.problem-cell {
 .feed-item {
   display: flex;
   align-items: center;
-  gap: 0.6rem;
-  padding: 0.45rem 0.25rem;
+  gap: 0.5rem;
+  padding: 0.45rem 0;
   border-bottom: 1px solid var(--divider);
 }
 
@@ -700,9 +702,9 @@ tbody td.problem-cell {
     z-index: 10;
     width: min(22rem, 100vw);
     max-height: none;
-    border-radius: 0;
-    border-width: 0 0 0 1px;
-    border-color: var(--border);
+    padding: 1rem;
+    background: var(--card-bg);
+    border-left-color: var(--border);
   }
 }
 
@@ -719,10 +721,6 @@ tbody td.problem-cell {
     width: 100%;
     justify-content: flex-start;
     text-align: left;
-  }
-
-  .card {
-    padding: 0.85rem;
   }
 
   th,
