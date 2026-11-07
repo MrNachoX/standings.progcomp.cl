@@ -38,6 +38,22 @@ export const SLOT_LABELS = {
   "host-extra": "Host extra",
 };
 
+export const SLOT_SHORT_LABELS = {
+  performance: "Perf",
+  country: "Country",
+  host: "Host",
+  geographic: "Geo",
+  "women-host-country": "♀ MX",
+  "women-latam": "♀ LatAm",
+  pending: "Pending",
+  "women-host": "♀ Host",
+  "women-region": "♀ Region",
+  "two-women": "♀♀",
+  "one-woman": "♀",
+  "country-participation": "Cycle",
+  "host-extra": "Host+",
+};
+
 /**
  * @param rankedTeams every official team, best first; each has
  *   { login, school, region, country, solved, women }

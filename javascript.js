@@ -1,11 +1,16 @@
-import { estimateQualifiers, SLOT_LABELS } from "./qualification.js";
+import {
+  estimateQualifiers,
+  SLOT_LABELS,
+  SLOT_SHORT_LABELS,
+} from "./qualification.js";
 
 const API_BASE = "https://animeitor.naquadah.com.br/api";
 const WS_BASE = "wss://animeitor.naquadah.com.br/api";
 const params = new URLSearchParams(window.location.search);
 const EVENT_ID = params.get("event") ?? "moj-icpc-latam-finals-2026-oficial";
+// The guest contest is the official one plus CCL guest teams.
 const CONTEST_ID =
-  params.get("contest") ?? "The 2026 ICPC Latin America Finals";
+  params.get("contest") ?? "The 2026 ICPC Latin America Finals with Guest Teams";
 const CONTEST_PATH = `/events/${encodeURIComponent(
   EVENT_ID
 )}/contests/${encodeURIComponent(CONTEST_ID)}`;
@@ -16,8 +21,12 @@ const TEAM_FILTER_PARAM = "teams";
 const DEFAULT_TEAM_FILTER = [];
 const THEME_STORAGE_KEY = "standings-theme";
 const FILTER_VISIBILITY_STORAGE_KEY = "standings-filter-hidden";
+const FEED_VISIBILITY_STORAGE_KEY = "standings-feed-visible";
+const FEED_SIZE = 100;
 
-// Logins look like team<region><country><number>, e.g. teamsocl003.
+// Logins look like team<region><country><number>, e.g. teamsocl003; guest
+// (CCL) teams use a "ccl" prefix instead, e.g. cclsocl001.
+const LOGIN_PATTERN = /^(team|ccl)([a-z]{2})([a-z]{2})\d+$/;
 const REGION_NAMES = {
   br: "Brazil",
   cb: "Caribbean",
@@ -61,6 +70,11 @@ const selectedWomen = new Set(
   (readListParam("women") ?? []).map(Number).filter((n) => n >= 0 && n <= 3)
 );
 let showQualifiers = params.get("qualify") !== "0";
+let showGuests = params.get("guests") === "1";
+let showFeed = readStorage(FEED_VISIBILITY_STORAGE_KEY) === "true";
+// Latest runs by id, for the submissions sidebar.
+const recentRuns = new Map();
+let lastFeedRunId = null;
 let socket;
 let reconnectTimer;
 let clockTimer;
@@ -73,6 +87,8 @@ document.addEventListener("DOMContentLoaded", () => {
   setupFilterPanel();
   setupWomenFilter();
   setupQualifyToggle();
+  setupGuestToggle();
+  setupFeed();
   bootstrap().catch((err) => {
     console.error(err);
     setStatus("Contest load failed", "error");
@@ -131,7 +147,10 @@ function populateHero(contest) {
   const freezeTimeLabel = document.getElementById("freeze-time");
   const maxTimeLabel = document.getElementById("max-time");
 
-  contestName.textContent = contest.contest ?? "Live Contest";
+  contestName.textContent = (contest.contest ?? "Live Contest").replace(
+    / with Guest Teams$/,
+    ""
+  );
   freezeTimeLabel.textContent = formatMinutes(
     Math.floor((contest.score_freeze_time_seconds ?? 0) / 60)
   );
@@ -151,12 +170,15 @@ function hydrateTeams(teams) {
   teamState.clear();
 
   for (const team of Object.values(teams ?? {})) {
+    const [, kind = "team", region = "", country = ""] =
+      LOGIN_PATTERN.exec(team.login) ?? [];
     teamState.set(team.login, {
       login: team.login,
       name: team.nome ?? team.login,
       school: team.escola ?? "",
-      region: team.login.slice(4, 6),
-      country: team.login.slice(6, 8),
+      guest: kind === "ccl",
+      region,
+      country,
       women: womenByLogin[team.login] ?? 0,
       solved: 0,
       penalty: 0,
@@ -239,6 +261,7 @@ function renderTeamFilter() {
 
   const regions = new Map();
   for (const team of teamState.values()) {
+    if (team.guest || !team.region) continue;
     if (!regions.has(team.region)) regions.set(team.region, new Map());
     const countries = regions.get(team.region);
     countries.set(team.country, (countries.get(team.country) ?? 0) + 1);
@@ -320,8 +343,8 @@ function toggleTeamPrefix(prefix, checked) {
   const countryPrefixes = [
     ...new Set(
       [...teamState.values()]
-        .filter((team) => team.login.startsWith(regionPrefix))
-        .map((team) => `team${team.region}${team.country}`)
+        .filter((team) => !team.guest && teamPrefix(team).startsWith(regionPrefix))
+        .map(teamPrefix)
     ),
   ];
 
@@ -369,6 +392,37 @@ function setupWomenFilter() {
   });
 }
 
+function setupGuestToggle() {
+  const checkbox = document.getElementById("guest-toggle");
+  if (!checkbox) return;
+  checkbox.checked = showGuests;
+  checkbox.addEventListener("change", () => {
+    showGuests = checkbox.checked;
+    writeUrlParam("guests", showGuests ? "1" : "");
+    requestRender(true);
+  });
+}
+
+function setupFeed() {
+  const toggle = document.getElementById("feed-toggle");
+  const close = document.getElementById("feed-close");
+  const apply = () => {
+    document.getElementById("feed").hidden = !showFeed;
+    document.querySelector("main")?.classList.toggle("with-feed", showFeed);
+    toggle?.setAttribute("aria-expanded", String(showFeed));
+    toggle?.classList.toggle("active", showFeed);
+  };
+  const set = (visible) => {
+    showFeed = visible;
+    writeStorage(FEED_VISIBILITY_STORAGE_KEY, String(visible));
+    apply();
+    renderFeed();
+  };
+  apply();
+  toggle?.addEventListener("click", () => set(!showFeed));
+  close?.addEventListener("click", () => set(false));
+}
+
 function setupQualifyToggle() {
   const checkbox = document.getElementById("qualify-toggle");
   if (!checkbox) return;
@@ -381,10 +435,18 @@ function setupQualifyToggle() {
   });
 }
 
+// Region/country filter values use the official "team<region><country>"
+// prefix; guests are matched by their region and country too.
+function teamPrefix(team) {
+  return `team${team.region}${team.country}`;
+}
+
 function isTeamSelected(team) {
+  if (team.guest && !showGuests) return false;
   if (!selectedPrefixes.size) return true;
-  for (const prefix of selectedPrefixes) {
-    if (team.login.startsWith(prefix)) return true;
+  const prefix = teamPrefix(team);
+  for (const selected of selectedPrefixes) {
+    if (prefix.startsWith(selected)) return true;
   }
   return false;
 }
@@ -400,12 +462,30 @@ function renderHeader() {
   const headerRow = document.getElementById("standings-header");
   headerRow.innerHTML = "";
 
-  const baseHeadings = showQualifiers
-    ? ["#", "Team", "LatAm", "Slot (est.)", "Women", "Solved", "Penalty"]
-    : ["#", "Team", "Women", "Solved", "Penalty"];
-  for (const title of [...baseHeadings, ...problemIds]) {
+  const baseHeadings = [
+    ["#", "Position within the selected regions/countries"],
+    ["Team"],
+    ...(showQualifiers
+      ? [
+          ["LA", "Position in Latin America", "col-latam"],
+          ["Slot", "Estimated qualification slot", "col-slot"],
+        ]
+      : []),
+    ["♀", "Women on the team", "col-women"],
+    ["AC", "Problems solved", "col-solved"],
+    ["Pen", "Penalty (minutes)", "col-penalty"],
+  ];
+  for (const [title, tooltip, className] of baseHeadings) {
     const th = document.createElement("th");
     th.textContent = title;
+    if (tooltip) th.title = tooltip;
+    if (className) th.className = className;
+    headerRow.appendChild(th);
+  }
+  for (const prob of problemIds) {
+    const th = document.createElement("th");
+    th.textContent = prob;
+    th.className = "col-problem";
     headerRow.appendChild(th);
   }
 }
@@ -419,15 +499,18 @@ function renderStandings() {
     return;
   }
 
-  const ranked = [...teamState.values()].sort(compareTeams);
+  const sorted = [...teamState.values()].sort(compareTeams);
+  // Guests are listed among official teams but never take a position.
+  const ranked = sorted.filter((team) => !team.guest);
   const latamRank = new Map(ranked.map((team, index) => [team.login, index + 1]));
   const qualifiers = showQualifiers ? estimateQualifiers(ranked) : new Map();
 
   // Rank within the selected regions/countries; the women filter only hides
   // rows so positions stay comparable.
-  const teams = ranked
+  let position = 0;
+  const teams = sorted
     .filter(isTeamSelected)
-    .map((team, index) => ({ team, rank: index + 1 }))
+    .map((team) => ({ team, rank: team.guest ? null : ++position }))
     .filter(({ team }) => isWomenSelected(team));
 
   if (!teams.length) {
@@ -438,15 +521,21 @@ function renderStandings() {
   const fragment = document.createDocumentFragment();
   for (const { team, rank } of teams) {
     const tr = document.createElement("tr");
+    if (team.guest) tr.classList.add("guest");
 
-    appendCell(tr, "col-rank", rank);
+    appendCell(tr, "col-rank", rank ?? "—");
     tr.appendChild(buildTeamCell(team));
 
     if (showQualifiers) {
-      appendCell(tr, "col-latam", latamRank.get(team.login));
+      appendCell(tr, "col-latam", latamRank.get(team.login) ?? "—");
       const slot = qualifiers.get(team.login);
       if (slot) tr.classList.add("qualified");
-      appendCell(tr, "col-slot", slot ? SLOT_LABELS[slot] ?? slot : "—");
+      const slotCell = appendCell(
+        tr,
+        "col-slot",
+        slot ? SLOT_SHORT_LABELS[slot] ?? slot : "—"
+      );
+      if (slot) slotCell.title = SLOT_LABELS[slot] ?? slot;
     }
 
     tr.appendChild(buildWomenCell(team.women));
@@ -468,6 +557,7 @@ function appendCell(row, className, value) {
   td.className = className;
   td.textContent = value;
   row.appendChild(td);
+  return td;
 }
 
 function buildTeamCell(team) {
@@ -483,6 +573,12 @@ function buildTeamCell(team) {
   name.className = "team-name";
   name.textContent = team.name;
   line.appendChild(name);
+  if (team.guest) {
+    const tag = document.createElement("span");
+    tag.className = "guest-tag";
+    tag.textContent = "Guest";
+    line.appendChild(tag);
+  }
 
   const school = document.createElement("p");
   school.className = "team-school";
@@ -509,7 +605,7 @@ function buildWomenCell(count) {
   const td = document.createElement("td");
   td.className = "col-women";
   if (count > 0) {
-    td.textContent = "♀".repeat(count);
+    td.textContent = count === 3 ? "♀3" : "♀".repeat(count);
     td.title = count === 3 ? "All-women team" : count === 1 ? "1 woman" : `${count} women`;
     if (count === 3) td.classList.add("all-women");
   } else {
@@ -563,6 +659,8 @@ function connectSocket() {
       team.runs.clear();
       recomputeTeam(team);
     }
+    recentRuns.clear();
+    lastFeedRunId = null;
     setStatus("Live", "online");
   });
   socket.addEventListener("message", (event) => {
@@ -599,6 +697,82 @@ function processRun(run) {
 
   team.runs.set(run.id, run);
   recomputeTeam(team);
+
+  recentRuns.set(run.id, run);
+  if (recentRuns.size > FEED_SIZE * 20) {
+    const keep = [...recentRuns.keys()].sort((a, b) => b - a).slice(0, FEED_SIZE * 10);
+    const keepSet = new Set(keep);
+    for (const id of recentRuns.keys()) {
+      if (!keepSet.has(id)) recentRuns.delete(id);
+    }
+  }
+}
+
+function renderFeed() {
+  const list = document.getElementById("feed-list");
+  if (!list || !showFeed) return;
+
+  const runs = [...recentRuns.values()]
+    .filter((run) => {
+      const team = teamState.get(run.team_login);
+      return team && isTeamSelected(team) && isWomenSelected(team);
+    })
+    .sort((a, b) => b.id - a.id)
+    .slice(0, FEED_SIZE);
+
+  list.innerHTML = "";
+  if (!runs.length) {
+    const empty = document.createElement("li");
+    empty.className = "filter-placeholder";
+    empty.textContent = "No submissions yet.";
+    list.appendChild(empty);
+    return;
+  }
+
+  for (const run of runs) {
+    const team = teamState.get(run.team_login);
+    const verdict =
+      run.answer === "Y" ? "yes" : run.answer === "N" ? "no" : "pending";
+    const li = document.createElement("li");
+    li.className = `feed-item ${verdict}`;
+    // Only animate runs that arrived after the sidebar was first filled.
+    if (lastFeedRunId !== null && run.id > lastFeedRunId) li.classList.add("fresh");
+
+    const prob = document.createElement("span");
+    prob.className = "feed-problem";
+    prob.textContent = run.prob;
+
+    const body = document.createElement("div");
+    body.className = "feed-body";
+    const line = document.createElement("div");
+    line.className = "team-line";
+    const flag = createFlagElement(team.country);
+    if (flag) line.appendChild(flag);
+    const name = document.createElement("p");
+    name.className = "team-name";
+    name.textContent = team.name;
+    line.appendChild(name);
+    const school = document.createElement("p");
+    school.className = "team-school";
+    school.textContent = team.school;
+    body.append(line, school);
+
+    const side = document.createElement("div");
+    side.className = "feed-side";
+    const result = document.createElement("span");
+    result.className = "feed-verdict";
+    result.textContent =
+      verdict === "yes" ? "Yes" : verdict === "no" ? "No" : "Pending";
+    const time = document.createElement("span");
+    time.className = "feed-time";
+    time.textContent = formatMinutes(Math.floor(run.time_seconds / 60));
+    side.append(result, time);
+
+    li.append(prob, body, side);
+    list.appendChild(li);
+  }
+
+  lastFeedRunId = Math.max(lastFeedRunId ?? 0, runs[0].id);
 }
 
 function recomputeTeam(team) {
@@ -721,6 +895,7 @@ function requestRender(immediate = false) {
     }
     renderQueued = false;
     renderStandings();
+    renderFeed();
     return;
   }
 
@@ -730,5 +905,6 @@ function requestRender(immediate = false) {
     renderQueued = false;
     renderTimeoutId = null;
     renderStandings();
+    renderFeed();
   }, RENDER_DEBOUNCE_MS);
 }

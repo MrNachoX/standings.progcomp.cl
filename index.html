@@ -60,6 +60,15 @@
             >
               Filters ▼
             </button>
+            <button
+              id="feed-toggle"
+              class="pill-button"
+              type="button"
+              aria-expanded="false"
+              aria-controls="feed"
+            >
+              Submissions
+            </button>
             <div id="status-pill" class="status-pill">Connecting…</div>
           </div>
         </div>
@@ -106,6 +115,10 @@
                 <input type="checkbox" id="qualify-toggle" />
                 <span>Estimated qualifiers</span>
               </label>
+              <label class="filter-checkbox">
+                <input type="checkbox" id="guest-toggle" />
+                <span>Guest teams (CCL)</span>
+              </label>
             </div>
           </fieldset>
         </div>
@@ -131,6 +144,24 @@
           </table>
         </div>
       </section>
+
+      <aside id="feed" class="feed" aria-label="Latest submissions" hidden>
+        <div class="feed-head">
+          <h2>Submissions</h2>
+          <button
+            id="feed-close"
+            class="pill-button"
+            type="button"
+            aria-label="Hide submissions"
+          >
+            ✕
+          </button>
+        </div>
+        <p class="feed-note">Newest first · follows the current filters</p>
+        <ol id="feed-list" class="feed-list">
+          <li class="filter-placeholder">Waiting for submissions…</li>
+        </ol>
+      </aside>
     </main>
 
     <script src="javascript.js" type="module"></script>

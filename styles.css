@@ -385,7 +385,38 @@ tbody tr:hover td {
   max-width: 18rem;
 }
 
+/* Narrow numeric/meta columns. */
+th.col-latam,
+th.col-slot,
+th.col-women,
+th.col-solved,
+th.col-penalty,
+td.col-latam,
+td.col-slot,
+td.col-women,
+td.col-solved,
+td.col-penalty {
+  padding-left: 0.3rem;
+  padding-right: 0.3rem;
+  text-align: center;
+  width: 1%;
+}
+
+th.col-problem {
+  text-align: center;
+}
+
 .col-latam {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+.col-solved {
+  font-weight: 600;
+}
+
+.col-penalty {
+  font-size: 0.8rem;
   color: var(--text-muted);
 }
 
@@ -394,7 +425,7 @@ tbody tr.qualified td.col-rank {
 }
 
 .col-slot {
-  font-size: 0.8rem;
+  font-size: 0.75rem;
   color: var(--text-muted);
 }
 
@@ -434,6 +465,22 @@ tbody tr.qualified .col-slot {
   color: var(--text-muted);
 }
 
+tbody tr.guest td {
+  opacity: 0.75;
+}
+
+.guest-tag {
+  flex: none;
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: 0.65rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
 .team-flag {
   flex: none;
   width: 1.35rem;
@@ -445,7 +492,7 @@ tbody tr.qualified .col-slot {
 
 .col-women {
   color: var(--women);
-  letter-spacing: 0.1em;
+  font-size: 0.8rem;
 }
 
 .col-women.all-women {
@@ -496,6 +543,169 @@ tbody td.problem-cell {
   font-size: 0.7rem;
   font-weight: 500;
   color: var(--text-muted);
+}
+
+.pill-button.active {
+  background: var(--accent-muted);
+  border-color: transparent;
+  color: var(--accent);
+}
+
+/* Submissions sidebar */
+
+main.with-feed {
+  grid-template-columns: minmax(0, 1fr) 20rem;
+  align-items: start;
+}
+
+.feed {
+  position: sticky;
+  top: 1rem;
+  max-height: calc(100vh - 2rem);
+  display: flex;
+  flex-direction: column;
+  background: var(--card-bg);
+  border: 1px solid var(--divider);
+  border-radius: 1.5rem;
+  padding: 1.25rem 1rem;
+  box-shadow: 0 30px 60px rgba(0, 0, 0, 0.35);
+}
+
+.feed[hidden] {
+  display: none;
+}
+
+.feed-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.feed-head h2 {
+  margin: 0;
+  font-size: 1rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.feed-note {
+  margin: 0.35rem 0 0.75rem;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.feed-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.feed-item {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.25rem;
+  border-bottom: 1px solid var(--divider);
+}
+
+.feed-item.fresh {
+  animation: feed-arrive 1.5s ease-out;
+}
+
+@keyframes feed-arrive {
+  from {
+    background: var(--accent-muted);
+  }
+  to {
+    background: transparent;
+  }
+}
+
+.feed-problem {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 1.9rem;
+  height: 1.9rem;
+  border-radius: 0.5rem;
+  font-weight: 600;
+  background: var(--idle-bg);
+}
+
+.feed-item.yes .feed-problem {
+  background: var(--accent-muted);
+  color: var(--accent);
+}
+
+.feed-item.no .feed-problem {
+  background: var(--danger-muted);
+  color: var(--danger);
+}
+
+.feed-item.pending .feed-problem {
+  background: var(--pending-bg);
+  color: var(--pending-text);
+}
+
+.feed-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.feed-body .team-name,
+.feed-body .team-school {
+  white-space: nowrap;
+}
+
+.feed-side {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.1rem;
+  font-size: 0.75rem;
+}
+
+.feed-verdict {
+  font-weight: 600;
+}
+
+.feed-item.yes .feed-verdict {
+  color: var(--accent);
+}
+
+.feed-item.no .feed-verdict {
+  color: var(--danger);
+}
+
+.feed-item.pending .feed-verdict {
+  color: var(--pending-text);
+}
+
+.feed-time {
+  color: var(--text-muted);
+}
+
+/* Without room for two columns the sidebar becomes a drawer. */
+@media (max-width: 1100px) {
+  main.with-feed {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .feed {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 10;
+    width: min(22rem, 100vw);
+    max-height: none;
+    border-radius: 0;
+    box-shadow: -20px 0 50px rgba(0, 0, 0, 0.45);
+  }
 }
 
 @media (max-width: 768px) {
