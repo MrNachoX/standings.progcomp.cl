@@ -537,7 +537,10 @@ function renderStandings() {
         "col-slot",
         slot ? SLOT_SHORT_LABELS[slot] ?? slot : "—"
       );
-      if (slot) slotCell.title = SLOT_LABELS[slot] ?? slot;
+      if (slot) {
+        slotCell.title = SLOT_LABELS[slot] ?? slot;
+        boldWomenSymbols(slotCell);
+      }
     }
 
     tr.appendChild(buildWomenCell(team.women));
@@ -601,6 +604,23 @@ function createFlagElement(countryCode) {
   img.referrerPolicy = "no-referrer";
   img.addEventListener("error", () => img.remove(), { once: true });
   return img;
+}
+
+// Wrap each run of ♀ so it gets the bold styling of .women-symbol.
+function boldWomenSymbols(element) {
+  const parts = element.textContent.split(/(♀+)/);
+  element.textContent = "";
+  for (const part of parts) {
+    if (!part) continue;
+    if (part.startsWith("♀")) {
+      const span = document.createElement("span");
+      span.className = "women-symbol";
+      span.textContent = part;
+      element.appendChild(span);
+    } else {
+      element.append(part);
+    }
+  }
 }
 
 function buildWomenCell(count) {
