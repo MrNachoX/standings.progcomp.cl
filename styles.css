@@ -459,6 +459,11 @@ td.col-slot {
   color: var(--text-muted);
 }
 
+td.col-slot.need {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
 tbody tr.qualified .col-slot {
   color: var(--accent);
   font-weight: 600;

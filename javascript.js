@@ -1,4 +1,5 @@
 import {
+  estimateProblemsNeeded,
   estimateQualifiers,
   SLOT_LABELS,
   SLOT_SHORT_LABELS,
@@ -83,6 +84,19 @@ let socket;
 let reconnectTimer;
 let clockTimer;
 const RENDER_DEBOUNCE_MS = 200;
+// "Problems needed" reruns the estimate many times, so it is refreshed at
+// most this often and computed in small slices to keep the page responsive.
+const NEEDS_REFRESH_MS = 10000;
+const NEEDS_SLICE_MS = 12;
+const NEEDS_MAX_EXTRA = 4;
+// Wait for a pause in incoming runs so the replay after connecting is done.
+const NEEDS_QUIET_MS = 600;
+let needsCache = { at: 0, version: -1, checked: new Set(), needs: new Map() };
+let needsJob = null;
+// Bumped on every run so cached results know which scoreboard they used.
+let scoreboardVersion = 0;
+let lastRunAt = 0;
+const contestClock = { startSeconds: 0, loadedAt: Date.now() };
 let renderTimeoutId = null;
 let renderQueued = false;
 
@@ -160,14 +174,19 @@ function populateHero(contest) {
   );
 
   clearInterval(clockTimer);
-  const loadedAt = Date.now();
-  const startSeconds = contest.time_seconds ?? 0;
+  contestClock.loadedAt = Date.now();
+  contestClock.startSeconds = contest.time_seconds ?? 0;
   const tick = () => {
-    const elapsed = startSeconds + (Date.now() - loadedAt) / 1000;
-    maxTimeLabel.textContent = formatMinutes(Math.floor(elapsed / 60));
+    maxTimeLabel.textContent = formatMinutes(currentMinute());
   };
   tick();
   clockTimer = setInterval(tick, 10000);
+}
+
+function currentMinute() {
+  const elapsed =
+    contestClock.startSeconds + (Date.now() - contestClock.loadedAt) / 1000;
+  return Math.floor(elapsed / 60);
 }
 
 function hydrateTeams(teams) {
@@ -522,6 +541,14 @@ function renderStandings() {
     return;
   }
 
+  const needs = showQualifiers
+    ? problemsNeeded(
+        ranked,
+        qualifiers,
+        teams.map(({ team }) => team).filter((team) => !team.guest)
+      )
+    : new Map();
+
   const fragment = document.createDocumentFragment();
   for (const { team, rank } of teams) {
     const tr = document.createElement("tr");
@@ -542,6 +569,13 @@ function renderStandings() {
       if (slot) {
         slotCell.title = `${SLOT_LABELS[slot] ?? slot} (estimate)\n${detail}`;
         boldWomenSymbols(slotCell);
+      } else if (needs.has(team.login)) {
+        const need = needs.get(team.login);
+        slotCell.textContent = `${need.extra} more`;
+        slotCell.classList.add("need");
+        slotCell.title = describeNeed(need);
+      } else if (!team.guest && needsCache.checked.has(team.login)) {
+        slotCell.title = `Not in the estimate even with ${NEEDS_MAX_EXTRA} more problems.`;
       }
     }
 
@@ -606,6 +640,91 @@ function createFlagElement(countryCode) {
   img.referrerPolicy = "no-referrer";
   img.addEventListener("error", () => img.remove(), { once: true });
   return img;
+}
+
+// Returns the latest finished results and starts a background refresh when
+// they are stale or miss some of the shown teams.
+function problemsNeeded(ranked, qualifiers, candidates) {
+  const changed = needsCache.version !== scoreboardVersion;
+  const stale =
+    changed &&
+    (needsCache.version <= 0 || Date.now() - needsCache.at > NEEDS_REFRESH_MS);
+  const missing = candidates.some((team) => !needsCache.checked.has(team.login));
+  if ((stale || missing) && !needsJob && scoreboardVersion > 0) {
+    const quietFor = Date.now() - lastRunAt;
+    if (quietFor < NEEDS_QUIET_MS) {
+      setTimeout(() => requestRender(), NEEDS_QUIET_MS - quietFor + 50);
+    } else {
+      startNeedsJob(ranked, qualifiers, candidates);
+    }
+  }
+  // Results from an empty scoreboard would be meaningless.
+  return needsCache.version > 0 ? needsCache.needs : new Map();
+}
+
+function startNeedsJob(ranked, qualifiers, candidates) {
+  // Snapshot the teams: runs keep arriving while the job is in progress.
+  const snapshot = ranked.map((team) => ({
+    ...team,
+    problems: Object.fromEntries(
+      Object.entries(team.problems).map(([id, problem]) => [id, { ...problem }])
+    ),
+  }));
+  const byLogin = new Map(snapshot.map((team) => [team.login, team]));
+  const queue = candidates
+    .map((team) => byLogin.get(team.login))
+    .filter((team) => team && !qualifiers.has(team.login));
+  const options = {
+    minute: currentMinute(),
+    maxExtra: NEEDS_MAX_EXTRA,
+    wrongPenalty: penaltyPerWrongAnswer.value,
+    compare: compareTeams,
+    names: { regionName, countryName },
+    shared: {},
+  };
+  const needs = new Map();
+  const version = scoreboardVersion;
+  needsJob = true;
+
+  const step = () => {
+    const deadline = performance.now() + NEEDS_SLICE_MS;
+    while (queue.length && performance.now() < deadline) {
+      const team = queue.shift();
+      const need = estimateProblemsNeeded(team, snapshot, qualifiers, options);
+      if (need) needs.set(team.login, need);
+    }
+    if (queue.length) {
+      setTimeout(step, 0);
+      return;
+    }
+    needsCache = {
+      at: Date.now(),
+      version,
+      checked: new Set(candidates.map((team) => team.login)),
+      needs,
+    };
+    needsJob = null;
+    requestRender();
+  };
+  setTimeout(step, 0);
+}
+
+function describeNeed(need) {
+  const problems = need.extra === 1 ? "1 more problem" : `${need.extra} more problems`;
+  const lines = [
+    `Needs ${problems} (estimate).`,
+    `Solving ${need.extra === 1 ? "it" : "them"} now, at minute ` +
+      `${currentMinute()}, would leave a penalty of ${need.penalty} and put ` +
+      `this team in: ${SLOT_LABELS[need.slot] ?? need.slot}.`,
+    need.detail,
+  ];
+  if (need.displaced.length) {
+    lines.push(
+      `It would push out: ${need.displaced.map((team) => team.name).join(", ")}.`
+    );
+  }
+  lines.push("Assumes the other teams don't change.");
+  return lines.join("\n");
 }
 
 // Wrap each run of ♀ so it gets the bold styling of .women-symbol.
@@ -695,6 +814,8 @@ function connectSocket() {
       team.runs.clear();
       recomputeTeam(team);
     }
+    scoreboardVersion = 0;
+    needsCache = { at: 0, version: -1, checked: new Set(), needs: new Map() };
     recentRuns.clear();
     lastFeedRunId = null;
     setStatus("Live", "online");
@@ -733,6 +854,8 @@ function processRun(run) {
 
   team.runs.set(run.id, run);
   recomputeTeam(team);
+  scoreboardVersion += 1;
+  lastRunAt = Date.now();
 
   recentRuns.set(run.id, run);
   if (recentRuns.size > FEED_SIZE * 20) {
