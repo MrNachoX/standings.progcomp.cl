@@ -1,3 +1,5 @@
+import { estimateQualifiers, SLOT_LABELS } from "./qualification.js";
+
 const API_BASE = "https://animeitor.naquadah.com.br/api";
 const WS_BASE = "wss://animeitor.naquadah.com.br/api";
 const params = new URLSearchParams(window.location.search);
@@ -5,6 +7,7 @@ const EVENT_ID = params.get("event") ?? "moj-icpc-latam-finals-2026-oficial";
 const CONTEST_ID =
   params.get("contest") ?? "The 2026 ICPC Latin America Finals";
 const SITE_NAME = params.get("sede") ?? "Chile";
+const WOMEN_DATA_URL = "women.json";
 const CONTEST_PATH = `/events/${encodeURIComponent(
   EVENT_ID
 )}/contests/${encodeURIComponent(CONTEST_ID)}`;
@@ -13,8 +16,11 @@ const penaltyPerWrongAnswer = { value: 20 };
 let problemIds = [];
 let contestMeta = null;
 let siteFilters = [];
+let womenByLogin = {};
+let minWomen = Number(params.get("women")) || 0;
+let showQualifiers = params.get("qualify") === "1";
+// Every official team, so qualifiers can be estimated over all of LatAm.
 const teamState = new Map();
-const runsById = new Map();
 let socket;
 let reconnectTimer;
 let clockTimer;
@@ -23,6 +29,8 @@ let renderTimeoutId = null;
 let renderQueued = false;
 
 document.addEventListener("DOMContentLoaded", () => {
+  setupWomenFilter();
+  setupQualifyToggle();
   bootstrap().catch((err) => {
     console.error(err);
     setStatus("Contest load failed", "error");
@@ -48,11 +56,13 @@ async function fetchApi(path) {
 
 async function loadContest() {
   setStatus("Fetching contest…");
-  const [contest, config] = await Promise.all([
+  const [contest, config, women] = await Promise.all([
     fetchApi("/contest"),
     fetchApi("/config").catch(() => null),
+    loadWomenData(),
   ]);
 
+  womenByLogin = women;
   contestMeta = contest;
   penaltyPerWrongAnswer.value = Math.round((contest.penalty_seconds ?? 1200) / 60);
   problemIds = [...(contest.problems ?? [])];
@@ -62,6 +72,46 @@ async function loadContest() {
   renderHeader();
   hydrateTeams(contestMeta.teams);
   requestRender(true);
+}
+
+async function loadWomenData() {
+  try {
+    const response = await fetch(WOMEN_DATA_URL);
+    if (!response.ok) throw new Error(`women.json responded with ${response.status}`);
+    return await response.json();
+  } catch (error) {
+    console.warn("Women data unavailable", error);
+    return {};
+  }
+}
+
+function setupWomenFilter() {
+  const select = document.getElementById("women-filter");
+  if (!select) return;
+  select.value = String(minWomen);
+  select.addEventListener("change", () => {
+    minWomen = Number(select.value) || 0;
+    const url = new URL(window.location.href);
+    if (minWomen) url.searchParams.set("women", minWomen);
+    else url.searchParams.delete("women");
+    window.history.replaceState(null, "", url);
+    requestRender(true);
+  });
+}
+
+function setupQualifyToggle() {
+  const checkbox = document.getElementById("qualify-toggle");
+  if (!checkbox) return;
+  checkbox.checked = showQualifiers;
+  checkbox.addEventListener("change", () => {
+    showQualifiers = checkbox.checked;
+    const url = new URL(window.location.href);
+    if (showQualifiers) url.searchParams.set("qualify", "1");
+    else url.searchParams.delete("qualify");
+    window.history.replaceState(null, "", url);
+    renderHeader();
+    requestRender(true);
+  });
 }
 
 function buildSiteFilters(config) {
@@ -99,19 +149,21 @@ function populateHero(contest) {
 
 function hydrateTeams(teams) {
   teamState.clear();
-  runsById.clear();
-  const teamList = Object.values(teams ?? {}).filter((team) =>
-    shouldIncludeTeam(team.login)
-  );
 
-  for (const team of teamList) {
+  for (const team of Object.values(teams ?? {})) {
+    // Logins look like team<region><country><number>, e.g. teamsocl003.
     teamState.set(team.login, {
       login: team.login,
       name: team.nome ?? team.login,
       school: team.escola ?? "",
+      region: team.login.slice(4, 6),
+      country: team.login.slice(6, 8),
+      women: womenByLogin[team.login] ?? 0,
       solved: 0,
       penalty: 0,
+      lastSolve: 0,
       problems: createProblemState(),
+      runs: new Map(),
     });
   }
 }
@@ -133,7 +185,9 @@ function renderHeader() {
   const headerRow = document.getElementById("standings-header");
   headerRow.innerHTML = "";
 
-  const baseHeadings = ["#", "Team", "Solved", "Penalty"];
+  const baseHeadings = showQualifiers
+    ? ["#", "LatAm", "Team", "Slot (est.)", "Women", "Solved", "Penalty"]
+    : ["#", "Team", "Women", "Solved", "Penalty"];
   for (const title of baseHeadings) {
     const th = document.createElement("th");
     th.textContent = title;
@@ -156,13 +210,29 @@ function renderStandings() {
     return;
   }
 
-  const teams = [...teamState.values()].sort(compareTeams);
+  const ranked = [...teamState.values()].sort(compareTeams);
+  const latamRank = new Map(ranked.map((team, index) => [team.login, index + 1]));
+  const qualifiers = showQualifiers ? estimateQualifiers(ranked) : new Map();
+
+  // Rank is computed over the whole site so filtering only hides rows.
+  const teams = ranked
+    .filter((team) => shouldIncludeTeam(team.login))
+    .map((team, index) => ({ team, rank: index + 1 }))
+    .filter(({ team }) => team.women >= minWomen);
   const fragment = document.createDocumentFragment();
 
-  teams.forEach((team, index) => {
+  if (!teams.length) {
+    showPlaceholder("No teams match this filter.");
+    return;
+  }
+
+  teams.forEach(({ team, rank }) => {
     const tr = document.createElement("tr");
 
-    appendCell(tr, "col-rank", index + 1);
+    appendCell(tr, "col-rank", rank);
+    if (showQualifiers) {
+      appendCell(tr, "col-rank latam", latamRank.get(team.login));
+    }
     const teamCell = document.createElement("td");
     teamCell.classList.add("col-team");
     const teamName = document.createElement("p");
@@ -173,6 +243,21 @@ function renderStandings() {
     teamSchool.textContent = truncate(team.school, 50);
     teamCell.append(teamName, teamSchool);
     tr.appendChild(teamCell);
+
+    if (showQualifiers) {
+      const slot = qualifiers.get(team.login);
+      const slotCell = document.createElement("td");
+      slotCell.className = "col-slot";
+      if (slot) {
+        tr.classList.add("qualified");
+        slotCell.textContent = SLOT_LABELS[slot] ?? slot;
+      } else {
+        slotCell.textContent = "—";
+      }
+      tr.appendChild(slotCell);
+    }
+
+    tr.appendChild(buildWomenCell(team.women));
 
     appendCell(tr, "col-solved", team.solved);
     appendCell(tr, "col-penalty", team.penalty);
@@ -192,6 +277,20 @@ function appendCell(row, className, value) {
   td.className = className;
   td.textContent = value;
   row.appendChild(td);
+}
+
+function buildWomenCell(count) {
+  const td = document.createElement("td");
+  td.className = "col-women";
+  if (count > 0) {
+    td.textContent = "♀".repeat(count);
+    td.title = count === 3 ? "All-women team" : count === 1 ? "1 woman" : `${count} women`;
+    if (count === 3) td.classList.add("all-women");
+  } else {
+    td.textContent = "—";
+    td.classList.add("none");
+  }
+  return td;
 }
 
 function buildProblemCell(problem = {}) {
@@ -218,6 +317,7 @@ function buildProblemCell(problem = {}) {
 function compareTeams(a, b) {
   if (b.solved !== a.solved) return b.solved - a.solved;
   if (a.penalty !== b.penalty) return a.penalty - b.penalty;
+  if (a.lastSolve !== b.lastSolve) return a.lastSolve - b.lastSolve;
   return a.name.localeCompare(b.name);
 }
 
@@ -230,8 +330,10 @@ function connectSocket() {
 
   socket.addEventListener("open", () => {
     // The server replays every run on connect, so start from a clean slate.
-    runsById.clear();
-    for (const team of teamState.values()) recomputeTeam(team);
+    for (const team of teamState.values()) {
+      team.runs.clear();
+      recomputeTeam(team);
+    }
     setStatus("Live", "online");
   });
   socket.addEventListener("message", (event) => {
@@ -266,18 +368,17 @@ function processRun(run) {
     renderHeader();
   }
 
-  runsById.set(run.id, run);
+  team.runs.set(run.id, run);
   recomputeTeam(team);
 }
 
 function recomputeTeam(team) {
-  const runs = [...runsById.values()]
-    .filter((run) => run.team_login === team.login)
-    .sort((a, b) => a.time_seconds - b.time_seconds || a.id - b.id);
+  const runs = [...team.runs.values()].sort((a, b) => a.time_seconds - b.time_seconds || a.id - b.id);
 
   team.problems = createProblemState();
   team.solved = 0;
   team.penalty = 0;
+  team.lastSolve = 0;
 
   for (const run of runs) {
     const problem = (team.problems[run.prob] ??= {
@@ -294,6 +395,7 @@ function recomputeTeam(team) {
         problem.pending = false;
         problem.time = Math.floor(run.time_seconds / 60);
         team.solved += 1;
+        team.lastSolve = Math.max(team.lastSolve, problem.time);
         team.penalty +=
           problem.time + problem.wrongAttempts * penaltyPerWrongAnswer.value;
         break;
@@ -322,7 +424,9 @@ function setStatus(text, style) {
 function showPlaceholder(text) {
   const tbody = document.getElementById("standings-body");
   if (!tbody) return;
-  tbody.innerHTML = `<tr><td colspan="${4 + problemIds.length}" class="placeholder">${text}</td></tr>`;
+  tbody.innerHTML = `<tr><td colspan="${
+    document.getElementById("standings-header")?.children.length || 5
+  }" class="placeholder">${text}</td></tr>`;
 }
 
 function buildProblemIds(number = 0) {

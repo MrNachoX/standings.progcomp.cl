@@ -34,8 +34,28 @@
       <section class="standings-card">
         <div class="standings-head">
           <h2>Standings</h2>
-          <div id="status-pill" class="status-pill">Connecting…</div>
+          <div class="standings-controls">
+            <label class="filter">
+              <span>Women</span>
+              <select id="women-filter">
+                <option value="0">All teams</option>
+                <option value="1">At least 1</option>
+                <option value="2">At least 2</option>
+                <option value="3">All-women</option>
+              </select>
+            </label>
+            <label class="filter toggle">
+              <input type="checkbox" id="qualify-toggle" />
+              <span>Estimated qualifiers</span>
+            </label>
+            <div id="status-pill" class="status-pill">Connecting…</div>
+          </div>
         </div>
+        <p class="qualify-note" id="qualify-note">
+          Estimate only: based on the live (possibly frozen) scoreboard and the
+          2026-27 LatAm promotion rules, excluding the 6 discretionary reserve
+          slots.
+        </p>
         <div class="table-wrapper">
           <table id="standings-table">
             <thead>

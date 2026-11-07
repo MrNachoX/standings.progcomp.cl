@@ -84,6 +84,7 @@ main {
 
 .standings-head {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
   gap: 1rem;
@@ -94,6 +95,90 @@ main {
   font-size: 1.2rem;
   letter-spacing: 0.05em;
   text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.standings-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.filter {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+}
+
+.filter select {
+  font: inherit;
+  text-transform: none;
+  letter-spacing: normal;
+  font-size: 0.9rem;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  padding: 0.35rem 0.9rem;
+}
+
+.filter.toggle {
+  cursor: pointer;
+}
+
+.filter.toggle input {
+  accent-color: var(--accent);
+  width: 1rem;
+  height: 1rem;
+  margin: 0;
+}
+
+.qualify-note {
+  display: none;
+  margin: 1rem 0 0;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.standings-card:has(#qualify-toggle:checked) .qualify-note {
+  display: block;
+}
+
+.col-rank.latam {
+  color: var(--text-muted);
+}
+
+.col-slot {
+  white-space: nowrap;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+tbody tr.qualified {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+tbody tr.qualified .col-slot {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.col-women {
+  white-space: nowrap;
+  color: #f2a7e4;
+  letter-spacing: 0.1em;
+}
+
+.col-women.all-women {
+  font-weight: 600;
+}
+
+.col-women.none {
   color: var(--text-muted);
 }
 
