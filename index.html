@@ -12,123 +12,124 @@
     />
     <link rel="stylesheet" href="styles.css" />
   </head>
-  <body data-theme="dark">
+  <body data-theme="light">
     <script>
       // Apply the saved theme before first paint to avoid a flash.
       try {
-        if (localStorage.getItem("standings-theme") === "light") {
-          document.body.dataset.theme = "light";
+        if (localStorage.getItem("standings-theme") === "dark") {
+          document.body.dataset.theme = "dark";
         }
       } catch (error) {}
     </script>
-    <header class="site-header">
-      <div class="site-title">
-        <p class="eyebrow">Live ICPC Feed</p>
-        <h1 id="contest-name">Loading contest…</h1>
-      </div>
-      <div class="meta">
-        <div>
-          <p class="meta-label">Score freeze</p>
-          <p class="meta-value" id="freeze-time">--</p>
-        </div>
-        <div>
-          <p class="meta-label">Elapsed</p>
-          <p class="meta-value" id="max-time">--</p>
-        </div>
-        <button
-          id="theme-toggle"
-          class="pill-button theme-toggle"
-          type="button"
-          aria-label="Toggle theme"
-        >
-          ☀
-        </button>
-      </div>
-    </header>
 
-    <main>
-      <section class="standings-card">
-        <div class="standings-head">
-          <h2>Standings</h2>
-          <div class="standings-actions">
-            <button
-              id="filter-toggle"
-              class="pill-button"
-              type="button"
-              aria-expanded="true"
-              aria-controls="filter-panel"
-            >
-              Filters ▼
-            </button>
-            <button
-              id="feed-toggle"
-              class="pill-button"
-              type="button"
-              aria-expanded="false"
-              aria-controls="feed"
-            >
-              Submissions
-            </button>
-            <div id="status-pill" class="status-pill">Connecting…</div>
+    <div id="layout" class="layout has-filters has-feed">
+      <header class="site-header area-head">
+        <div class="site-top">
+          <div class="site-title">
+            <p class="eyebrow">Live ICPC Feed</p>
+            <h1 id="contest-name">Loading contest…</h1>
+          </div>
+          <div class="meta">
+            <div>
+              <p class="meta-label">Score freeze</p>
+              <p class="meta-value" id="freeze-time">--</p>
+            </div>
+            <div>
+              <p class="meta-label">Elapsed</p>
+              <p class="meta-value" id="max-time">--</p>
+            </div>
           </div>
         </div>
-
-        <div class="filter-panel" id="filter-panel">
-          <fieldset class="filter-group filter-group-wide">
-            <legend>
-              Region / country
-              <button id="team-filter-clear" class="link-button" type="button">
-                Show all
-              </button>
-            </legend>
-            <div id="team-filter" class="region-grid">
-              <p class="filter-placeholder">Waiting for teams…</p>
-            </div>
-          </fieldset>
-
-          <fieldset class="filter-group">
-            <legend>Women on the team</legend>
-            <div id="women-filter" class="filter-options">
-              <label class="filter-checkbox">
-                <input type="checkbox" value="0" />
-                <span>None</span>
-              </label>
-              <label class="filter-checkbox">
-                <input type="checkbox" value="1" />
-                <span>♀ 1</span>
-              </label>
-              <label class="filter-checkbox">
-                <input type="checkbox" value="2" />
-                <span>♀♀ 2</span>
-              </label>
-              <label class="filter-checkbox">
-                <input type="checkbox" value="3" />
-                <span>♀♀♀ All-women</span>
-              </label>
-            </div>
-          </fieldset>
-
-          <fieldset class="filter-group">
-            <legend>Options</legend>
-            <div class="filter-options">
-              <label class="filter-checkbox">
-                <input type="checkbox" id="qualify-toggle" />
-                <span>Estimated qualifiers</span>
-              </label>
-              <label class="filter-checkbox">
-                <input type="checkbox" id="guest-toggle" />
-                <span>Guest teams (CCL)</span>
-              </label>
-            </div>
-          </fieldset>
+        <div class="site-actions">
+          <button
+            id="filter-toggle"
+            class="pill-button"
+            type="button"
+            aria-expanded="true"
+            aria-controls="filter-panel"
+          >
+            Filters
+          </button>
+          <button
+            id="feed-toggle"
+            class="pill-button"
+            type="button"
+            aria-expanded="true"
+            aria-controls="feed"
+          >
+            Submissions
+          </button>
+          <button
+            id="theme-toggle"
+            class="pill-button theme-toggle"
+            type="button"
+            aria-label="Toggle theme"
+          >
+            ☾
+          </button>
         </div>
-
         <p class="qualify-note">
-          Estimate only: based on the live (possibly frozen) scoreboard and the
-          2026-27 LatAm promotion rules, excluding the 6 discretionary reserve
-          slots.
+          Slots are an estimate: based on the live (possibly frozen) scoreboard
+          and the 2026-27 LatAm promotion rules, excluding the 6 discretionary
+          reserve slots.
         </p>
+      </header>
 
+      <section class="card filter-panel area-filters" id="filter-panel">
+        <fieldset class="filter-group">
+          <legend>
+            Region / country
+            <button id="team-filter-clear" class="link-button" type="button">
+              Show all
+            </button>
+          </legend>
+          <div id="team-filter" class="region-list">
+            <p class="filter-placeholder">Waiting for teams…</p>
+          </div>
+        </fieldset>
+
+        <fieldset class="filter-group">
+          <legend>Women on the team</legend>
+          <div id="women-filter" class="filter-options">
+            <label class="filter-checkbox">
+              <input type="checkbox" value="0" />
+              <span>None</span>
+            </label>
+            <label class="filter-checkbox">
+              <input type="checkbox" value="1" />
+              <span>♀ 1</span>
+            </label>
+            <label class="filter-checkbox">
+              <input type="checkbox" value="2" />
+              <span>♀♀ 2</span>
+            </label>
+            <label class="filter-checkbox">
+              <input type="checkbox" value="3" />
+              <span>♀♀♀ All</span>
+            </label>
+          </div>
+        </fieldset>
+
+        <fieldset class="filter-group">
+          <legend>Options</legend>
+          <div class="filter-options">
+            <label class="filter-checkbox">
+              <input type="checkbox" id="qualify-toggle" />
+              <span>Estimated qualifiers</span>
+            </label>
+            <label class="filter-checkbox">
+              <input type="checkbox" id="guest-toggle" />
+              <span>Guest teams (CCL)</span>
+            </label>
+          </div>
+        </fieldset>
+      </section>
+
+      <main class="card standings-card area-ranking">
+        <div class="card-head">
+          <h2>Standings</h2>
+          <div id="status-pill" class="status-pill">Connecting…</div>
+        </div>
         <div class="table-wrapper">
           <table id="standings-table">
             <thead>
@@ -143,11 +144,13 @@
             </tbody>
           </table>
         </div>
-      </section>
+      </main>
 
-      <aside id="feed" class="feed" aria-label="Latest submissions" hidden>
-        <div class="feed-head">
-          <h2>Submissions</h2>
+      <aside id="feed" class="card feed area-feed" aria-label="Latest submissions">
+        <div class="card-head">
+          <h2 title="Newest first, following the current filters">
+            Submissions
+          </h2>
           <button
             id="feed-close"
             class="pill-button"
@@ -157,12 +160,11 @@
             ✕
           </button>
         </div>
-        <p class="feed-note">Newest first · follows the current filters</p>
         <ol id="feed-list" class="feed-list">
           <li class="filter-placeholder">Waiting for submissions…</li>
         </ol>
       </aside>
-    </main>
+    </div>
 
     <script src="javascript.js" type="module"></script>
   </body>

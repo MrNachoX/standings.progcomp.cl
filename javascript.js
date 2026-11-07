@@ -71,7 +71,11 @@ const selectedWomen = new Set(
 );
 let showQualifiers = params.get("qualify") !== "0";
 let showGuests = params.get("guests") === "1";
-let showFeed = readStorage(FEED_VISIBILITY_STORAGE_KEY) === "true";
+// Open by default only where it fits beside the ranking; on small screens it
+// is a drawer that would cover the page.
+const WIDE_LAYOUT = window.matchMedia("(min-width: 1101px)").matches;
+const storedFeed = readStorage(FEED_VISIBILITY_STORAGE_KEY);
+let showFeed = storedFeed === null ? WIDE_LAYOUT : storedFeed === "true";
 // Latest runs by id, for the submissions sidebar.
 const recentRuns = new Map();
 let lastFeedRunId = null;
@@ -223,9 +227,9 @@ function setupThemeToggle() {
 }
 
 function setupFilterPanel() {
-  const panel = document.getElementById("filter-panel");
+  const layout = document.getElementById("layout");
   const button = document.getElementById("filter-toggle");
-  if (!panel || !button) return;
+  if (!layout || !button) return;
 
   const stored = readStorage(FILTER_VISIBILITY_STORAGE_KEY);
   let hidden =
@@ -233,8 +237,8 @@ function setupFilterPanel() {
       ? window.matchMedia("(max-width: 768px)").matches
       : stored === "true";
   const apply = () => {
-    panel.classList.toggle("collapsed", hidden);
-    button.textContent = `Filters ${hidden ? "▲" : "▼"}`;
+    layout.classList.toggle("has-filters", !hidden);
+    button.classList.toggle("active", !hidden);
     button.setAttribute("aria-expanded", String(!hidden));
   };
   apply();
@@ -291,26 +295,26 @@ function renderTeamFilter() {
       !regionInput.checked && selectedCountries.length > 0;
     block.appendChild(regionBox);
 
-    // Single-country regions (Brazil, Mexico) don't need a nested list.
+    // Single-country regions (Brazil, Mexico) don't need country chips.
     if (countries.size > 1) {
-      const list = document.createElement("ul");
+      const chips = document.createElement("div");
+      chips.className = "country-chips";
       const sortedCountries = [...countries].sort(([a], [b]) =>
         countryName(a).localeCompare(countryName(b))
       );
       for (const [country, count] of sortedCountries) {
-        const li = document.createElement("li");
         const box = buildFilterCheckbox(
           regionPrefix + country,
-          countryName(country),
+          country.toUpperCase(),
           count,
           country
         );
+        box.title = countryName(country);
         box.querySelector("input").checked =
           regionInput.checked || selectedPrefixes.has(regionPrefix + country);
-        li.appendChild(box);
-        list.appendChild(li);
+        chips.appendChild(box);
       }
-      block.appendChild(list);
+      block.appendChild(chips);
     }
 
     container.appendChild(block);
@@ -407,8 +411,7 @@ function setupFeed() {
   const toggle = document.getElementById("feed-toggle");
   const close = document.getElementById("feed-close");
   const apply = () => {
-    document.getElementById("feed").hidden = !showFeed;
-    document.querySelector("main")?.classList.toggle("with-feed", showFeed);
+    document.getElementById("layout")?.classList.toggle("has-feed", showFeed);
     toggle?.setAttribute("aria-expanded", String(showFeed));
     toggle?.classList.toggle("active", showFeed);
   };
