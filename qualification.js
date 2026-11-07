@@ -18,8 +18,10 @@ const COUNTRY_PARTICIPATION_SLOTS = [
   { country: "ar", teams: 186, slots: 2 },
   { country: "co", teams: 116, slots: 1 },
 ];
-// Institutions per region over the whole regional cycle, from last year's
-// official slot-assignment script (this year's counts aren't available).
+// Institutions per region over the whole regional cycle and the fractions
+// carried over from last year, from the official slot-assignment script. The
+// fractions match last year's outcome: regions that won a slot by fraction in
+// 2025 (Brazil, Caribbean, South America North) were reset to 0.
 const REGION_SCHOOLS = new Map([
   ["br", 233],
   ["cb", 21],
@@ -28,9 +30,11 @@ const REGION_SCHOOLS = new Map([
   ["no", 57],
   ["so", 108],
 ]);
-// The fractions to carry over into this year are unknown (that script only
-// has the ones it started from), so assume 0.
-const PREVIOUS_FRACTIONS = {};
+const PREVIOUS_FRACTIONS = {
+  ca: 0.6135513296227582,
+  mx: 0.553561121418265,
+  so: 0.5612244897959184,
+};
 
 export const SLOT_LABELS = {
   performance: "Performance",
@@ -160,9 +164,9 @@ export function estimateQualifiers(rankedTeams, names = {}) {
         `Geographic slot ${i + 1} of ${quota} for ${regionName(region)}: the ` +
           `${geo.open} slots left up to ${N} are split by institutions ` +
           `taking part in the regional season (${regionName(region)} has ` +
-          `${geo.schools.get(region)} of ${geo.total}); best ` +
-          `${regionName(region)} team from an institution with no qualified ` +
-          `team yet.`
+          `${geo.schools.get(region)} of ${geo.total}), plus fractions ` +
+          `carried over from last year; best ${regionName(region)} team ` +
+          `from an institution with no qualified team yet.`
       );
     }
   }
