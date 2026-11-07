@@ -1,13 +1,23 @@
-const CONTEST_API = "https://animeitor.naquadah.com.br/api/contest";
-const RUNS_SOCKET = "wss://animeitor.naquadah.com.br/api/allruns_ws";
-const TEAM_PREFIX_FILTER = "teamsoch";
+const API_BASE = "https://animeitor.naquadah.com.br/api";
+const WS_BASE = "wss://animeitor.naquadah.com.br/api";
+const params = new URLSearchParams(window.location.search);
+const EVENT_ID = params.get("event") ?? "moj-icpc-latam-finals-2026-oficial";
+const CONTEST_ID =
+  params.get("contest") ?? "The 2026 ICPC Latin America Finals";
+const SITE_NAME = params.get("sede") ?? "Chile";
+const CONTEST_PATH = `/events/${encodeURIComponent(
+  EVENT_ID
+)}/contests/${encodeURIComponent(CONTEST_ID)}`;
 
 const penaltyPerWrongAnswer = { value: 20 };
 let problemIds = [];
 let contestMeta = null;
+let siteFilters = [];
 const teamState = new Map();
+const runsById = new Map();
 let socket;
 let reconnectTimer;
+let clockTimer;
 const RENDER_DEBOUNCE_MS = 200;
 let renderTimeoutId = null;
 let renderQueued = false;
@@ -27,16 +37,26 @@ async function bootstrap() {
   connectSocket();
 }
 
+async function fetchApi(path) {
+  const response = await fetch(`${API_BASE}${CONTEST_PATH}${path}`);
+  if (!response.ok) {
+    throw new Error(`${path} responded with ${response.status}`);
+  }
+  const body = await response.json();
+  return body.data;
+}
+
 async function loadContest() {
   setStatus("Fetching contest…");
-  const response = await fetch(CONTEST_API);
-  if (!response.ok) {
-    throw new Error(`Contest API responded with ${response.status}`);
-  }
+  const [contest, config] = await Promise.all([
+    fetchApi("/contest"),
+    fetchApi("/config").catch(() => null),
+  ]);
 
-  contestMeta = await response.json();
-  penaltyPerWrongAnswer.value = contestMeta.penalty_per_wrong_answer ?? 20;
-  problemIds = buildProblemIds(contestMeta.number_problems);
+  contestMeta = contest;
+  penaltyPerWrongAnswer.value = Math.round((contest.penalty_seconds ?? 1200) / 60);
+  problemIds = [...(contest.problems ?? [])];
+  siteFilters = buildSiteFilters(config);
 
   populateHero(contestMeta);
   renderHeader();
@@ -44,18 +64,42 @@ async function loadContest() {
   requestRender(true);
 }
 
+function buildSiteFilters(config) {
+  if (!SITE_NAME || !config?.sites) return [];
+  const site = config.sites.find((s) => s.name === SITE_NAME);
+  if (!site) {
+    console.warn(`Site "${SITE_NAME}" not found in contest config`);
+    return [];
+  }
+  return (site.codes ?? []).map((code) => new RegExp(code));
+}
+
 function populateHero(contest) {
   const contestName = document.getElementById("contest-name");
   const freezeTimeLabel = document.getElementById("freeze-time");
   const maxTimeLabel = document.getElementById("max-time");
 
-  contestName.textContent = contest.contest_name ?? "Live Contest";
-  freezeTimeLabel.textContent = formatMinutes(contest.score_freeze_time);
-  maxTimeLabel.textContent = formatMinutes(contest.maximum_time);
+  contestName.textContent = SITE_NAME
+    ? `${contest.contest ?? "Live Contest"} — ${SITE_NAME}`
+    : contest.contest ?? "Live Contest";
+  freezeTimeLabel.textContent = formatMinutes(
+    Math.floor((contest.score_freeze_time_seconds ?? 0) / 60)
+  );
+
+  clearInterval(clockTimer);
+  const loadedAt = Date.now();
+  const startSeconds = contest.time_seconds ?? 0;
+  const tick = () => {
+    const elapsed = startSeconds + (Date.now() - loadedAt) / 1000;
+    maxTimeLabel.textContent = formatMinutes(Math.floor(elapsed / 60));
+  };
+  tick();
+  clockTimer = setInterval(tick, 10000);
 }
 
 function hydrateTeams(teams) {
   teamState.clear();
+  runsById.clear();
   const teamList = Object.values(teams ?? {}).filter((team) =>
     shouldIncludeTeam(team.login)
   );
@@ -63,8 +107,8 @@ function hydrateTeams(teams) {
   for (const team of teamList) {
     teamState.set(team.login, {
       login: team.login,
-      name: team.name,
-      school: team.escola,
+      name: team.nome ?? team.login,
+      school: team.escola ?? "",
       solved: 0,
       penalty: 0,
       problems: createProblemState(),
@@ -182,9 +226,14 @@ function connectSocket() {
   clearTimeout(reconnectTimer);
 
   setStatus("Connecting…");
-  socket = new WebSocket(RUNS_SOCKET);
+  socket = new WebSocket(`${WS_BASE}${CONTEST_PATH}/runs_ws`);
 
-  socket.addEventListener("open", () => setStatus("Live", "online"));
+  socket.addEventListener("open", () => {
+    // The server replays every run on connect, so start from a clean slate.
+    runsById.clear();
+    for (const team of teamState.values()) recomputeTeam(team);
+    setStatus("Live", "online");
+  });
   socket.addEventListener("message", (event) => {
     try {
       const payload = JSON.parse(event.data);
@@ -208,59 +257,56 @@ function scheduleReconnect() {
 
 function processRun(run) {
   if (!run || !run.team_login) return;
-  if (!shouldIncludeTeam(run.team_login)) return;
   const team = teamState.get(run.team_login);
   if (!team) return;
 
-  const probId = run.prob;
-  if (!team.problems[probId]) {
-    team.problems[probId] = {
+  if (!problemIds.includes(run.prob)) {
+    problemIds.push(run.prob);
+    problemIds.sort();
+    renderHeader();
+  }
+
+  runsById.set(run.id, run);
+  recomputeTeam(team);
+}
+
+function recomputeTeam(team) {
+  const runs = [...runsById.values()]
+    .filter((run) => run.team_login === team.login)
+    .sort((a, b) => a.time_seconds - b.time_seconds || a.id - b.id);
+
+  team.problems = createProblemState();
+  team.solved = 0;
+  team.penalty = 0;
+
+  for (const run of runs) {
+    const problem = (team.problems[run.prob] ??= {
       solved: false,
       pending: false,
       wrongAttempts: 0,
       time: 0,
-    };
-    if (!problemIds.includes(probId)) {
-      problemIds.push(probId);
-      renderHeader();
+    });
+    if (problem.solved) continue;
+
+    switch (run.answer) {
+      case "Y":
+        problem.solved = true;
+        problem.pending = false;
+        problem.time = Math.floor(run.time_seconds / 60);
+        team.solved += 1;
+        team.penalty +=
+          problem.time + problem.wrongAttempts * penaltyPerWrongAnswer.value;
+        break;
+      case "N":
+        problem.wrongAttempts += 1;
+        break;
+      case "?":
+        problem.pending = true;
+        break;
+      default:
+        break;
     }
   }
-
-  const verdict = Object.keys(run.answer ?? {})[0];
-  if (!verdict) return;
-  const details = run.answer[verdict];
-  const problem = team.problems[probId];
-
-  switch (verdict) {
-    case "Wait":
-      problem.pending = true;
-      break;
-    case "Yes":
-      finalizeSolve(team, problem, details?.time ?? run.time ?? 0);
-      break;
-    case "No":
-      if (!problem.solved) {
-        problem.pending = false;
-        problem.wrongAttempts += 1;
-      }
-      break;
-    default:
-      break;
-  }
-}
-
-function finalizeSolve(team, problem, solveTime) {
-  if (problem.solved) return;
-  const normalizedTime =
-    typeof solveTime === "number" && !Number.isNaN(solveTime)
-      ? solveTime
-      : Number(solveTime) || 0;
-  problem.solved = true;
-  problem.pending = false;
-  problem.time = normalizedTime;
-  team.solved += 1;
-  team.penalty +=
-    normalizedTime + problem.wrongAttempts * penaltyPerWrongAnswer.value;
 }
 
 function setStatus(text, style) {
@@ -300,8 +346,8 @@ function truncate(value = "", max = 40) {
 }
 
 function shouldIncludeTeam(login = "") {
-  if (!TEAM_PREFIX_FILTER) return true;
-  return login?.startsWith(TEAM_PREFIX_FILTER);
+  if (!siteFilters.length) return true;
+  return siteFilters.some((re) => re.test(login));
 }
 
 function requestRender(immediate = false) {
