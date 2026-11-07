@@ -6,21 +6,61 @@ const params = new URLSearchParams(window.location.search);
 const EVENT_ID = params.get("event") ?? "moj-icpc-latam-finals-2026-oficial";
 const CONTEST_ID =
   params.get("contest") ?? "The 2026 ICPC Latin America Finals";
-const SITE_NAME = params.get("sede") ?? "Chile";
-const WOMEN_DATA_URL = "women.json";
 const CONTEST_PATH = `/events/${encodeURIComponent(
   EVENT_ID
 )}/contests/${encodeURIComponent(CONTEST_ID)}`;
+const WOMEN_DATA_URL = "women.json";
+const FLAG_CDN_BASE = "https://cdn.jsdelivr.net/npm/flag-icons/flags/4x3";
+
+const TEAM_FILTER_PARAM = "teams";
+const DEFAULT_TEAM_FILTER = [];
+const THEME_STORAGE_KEY = "standings-theme";
+const FILTER_VISIBILITY_STORAGE_KEY = "standings-filter-hidden";
+
+// Logins look like team<region><country><number>, e.g. teamsocl003.
+const REGION_NAMES = {
+  br: "Brazil",
+  cb: "Caribbean",
+  ca: "Central America",
+  mx: "Mexico",
+  no: "South America North",
+  so: "South America South",
+};
+const COUNTRY_NAMES = {
+  ag: "Antigua & Barbuda",
+  ar: "Argentina",
+  bo: "Bolivia",
+  br: "Brazil",
+  cl: "Chile",
+  co: "Colombia",
+  cr: "Costa Rica",
+  cu: "Cuba",
+  do: "Dominican Republic",
+  ec: "Ecuador",
+  gt: "Guatemala",
+  mx: "Mexico",
+  ni: "Nicaragua",
+  pe: "Peru",
+  pr: "Puerto Rico",
+  sv: "El Salvador",
+  tt: "Trinidad & Tobago",
+  uy: "Uruguay",
+  ve: "Venezuela",
+};
 
 const penaltyPerWrongAnswer = { value: 20 };
 let problemIds = [];
 let contestMeta = null;
-let siteFilters = [];
 let womenByLogin = {};
-let minWomen = Number(params.get("women")) || 0;
-let showQualifiers = params.get("qualify") === "1";
 // Every official team, so qualifiers can be estimated over all of LatAm.
 const teamState = new Map();
+// Selected login prefixes ("teamso" for a region, "teamsocl" for a country).
+// Empty means every team.
+const selectedPrefixes = new Set(readListParam(TEAM_FILTER_PARAM) ?? DEFAULT_TEAM_FILTER);
+const selectedWomen = new Set(
+  (readListParam("women") ?? []).map(Number).filter((n) => n >= 0 && n <= 3)
+);
+let showQualifiers = params.get("qualify") !== "0";
 let socket;
 let reconnectTimer;
 let clockTimer;
@@ -29,6 +69,8 @@ let renderTimeoutId = null;
 let renderQueued = false;
 
 document.addEventListener("DOMContentLoaded", () => {
+  setupThemeToggle();
+  setupFilterPanel();
   setupWomenFilter();
   setupQualifyToggle();
   bootstrap().catch((err) => {
@@ -56,9 +98,8 @@ async function fetchApi(path) {
 
 async function loadContest() {
   setStatus("Fetching contest…");
-  const [contest, config, women] = await Promise.all([
+  const [contest, women] = await Promise.all([
     fetchApi("/contest"),
-    fetchApi("/config").catch(() => null),
     loadWomenData(),
   ]);
 
@@ -66,11 +107,11 @@ async function loadContest() {
   contestMeta = contest;
   penaltyPerWrongAnswer.value = Math.round((contest.penalty_seconds ?? 1200) / 60);
   problemIds = [...(contest.problems ?? [])];
-  siteFilters = buildSiteFilters(config);
 
   populateHero(contestMeta);
   renderHeader();
   hydrateTeams(contestMeta.teams);
+  renderTeamFilter();
   requestRender(true);
 }
 
@@ -85,53 +126,12 @@ async function loadWomenData() {
   }
 }
 
-function setupWomenFilter() {
-  const select = document.getElementById("women-filter");
-  if (!select) return;
-  select.value = String(minWomen);
-  select.addEventListener("change", () => {
-    minWomen = Number(select.value) || 0;
-    const url = new URL(window.location.href);
-    if (minWomen) url.searchParams.set("women", minWomen);
-    else url.searchParams.delete("women");
-    window.history.replaceState(null, "", url);
-    requestRender(true);
-  });
-}
-
-function setupQualifyToggle() {
-  const checkbox = document.getElementById("qualify-toggle");
-  if (!checkbox) return;
-  checkbox.checked = showQualifiers;
-  checkbox.addEventListener("change", () => {
-    showQualifiers = checkbox.checked;
-    const url = new URL(window.location.href);
-    if (showQualifiers) url.searchParams.set("qualify", "1");
-    else url.searchParams.delete("qualify");
-    window.history.replaceState(null, "", url);
-    renderHeader();
-    requestRender(true);
-  });
-}
-
-function buildSiteFilters(config) {
-  if (!SITE_NAME || !config?.sites) return [];
-  const site = config.sites.find((s) => s.name === SITE_NAME);
-  if (!site) {
-    console.warn(`Site "${SITE_NAME}" not found in contest config`);
-    return [];
-  }
-  return (site.codes ?? []).map((code) => new RegExp(code));
-}
-
 function populateHero(contest) {
   const contestName = document.getElementById("contest-name");
   const freezeTimeLabel = document.getElementById("freeze-time");
   const maxTimeLabel = document.getElementById("max-time");
 
-  contestName.textContent = SITE_NAME
-    ? `${contest.contest ?? "Live Contest"} — ${SITE_NAME}`
-    : contest.contest ?? "Live Contest";
+  contestName.textContent = contest.contest ?? "Live Contest";
   freezeTimeLabel.textContent = formatMinutes(
     Math.floor((contest.score_freeze_time_seconds ?? 0) / 60)
   );
@@ -151,7 +151,6 @@ function hydrateTeams(teams) {
   teamState.clear();
 
   for (const team of Object.values(teams ?? {})) {
-    // Logins look like team<region><country><number>, e.g. teamsocl003.
     teamState.set(team.login, {
       login: team.login,
       name: team.nome ?? team.login,
@@ -181,22 +180,232 @@ function createProblemState() {
   return store;
 }
 
+// ---------------------------------------------------------------------------
+// Theme and filters
+
+function setupThemeToggle() {
+  const toggle = document.getElementById("theme-toggle");
+  if (!toggle) return;
+  const update = () => {
+    const isLight = document.body.dataset.theme === "light";
+    toggle.textContent = isLight ? "☾" : "☀";
+    toggle.setAttribute("aria-pressed", String(isLight));
+  };
+  update();
+  toggle.addEventListener("click", () => {
+    const next = document.body.dataset.theme === "light" ? "dark" : "light";
+    document.body.dataset.theme = next;
+    writeStorage(THEME_STORAGE_KEY, next);
+    update();
+  });
+}
+
+function setupFilterPanel() {
+  const panel = document.getElementById("filter-panel");
+  const button = document.getElementById("filter-toggle");
+  if (!panel || !button) return;
+
+  const stored = readStorage(FILTER_VISIBILITY_STORAGE_KEY);
+  let hidden =
+    stored === null
+      ? window.matchMedia("(max-width: 768px)").matches
+      : stored === "true";
+  const apply = () => {
+    panel.classList.toggle("collapsed", hidden);
+    button.textContent = `Filters ${hidden ? "▲" : "▼"}`;
+    button.setAttribute("aria-expanded", String(!hidden));
+  };
+  apply();
+  button.addEventListener("click", () => {
+    hidden = !hidden;
+    writeStorage(FILTER_VISIBILITY_STORAGE_KEY, String(hidden));
+    apply();
+  });
+
+  document.getElementById("team-filter")?.addEventListener("change", (event) => {
+    const input = event.target;
+    if (!(input instanceof HTMLInputElement)) return;
+    toggleTeamPrefix(input.value, input.checked);
+  });
+  document.getElementById("team-filter-clear")?.addEventListener("click", () => {
+    selectedPrefixes.clear();
+    onTeamFilterChange();
+  });
+}
+
+function renderTeamFilter() {
+  const container = document.getElementById("team-filter");
+  if (!container) return;
+
+  const regions = new Map();
+  for (const team of teamState.values()) {
+    if (!regions.has(team.region)) regions.set(team.region, new Map());
+    const countries = regions.get(team.region);
+    countries.set(team.country, (countries.get(team.country) ?? 0) + 1);
+  }
+
+  container.innerHTML = "";
+  const sortedRegions = [...regions].sort(([a], [b]) =>
+    regionName(a).localeCompare(regionName(b))
+  );
+  for (const [region, countries] of sortedRegions) {
+    const regionPrefix = `team${region}`;
+    const block = document.createElement("div");
+    block.className = "region-block";
+
+    const total = [...countries.values()].reduce((sum, n) => sum + n, 0);
+    const regionBox = buildFilterCheckbox(
+      regionPrefix,
+      regionName(region),
+      total,
+      countries.size === 1 ? [...countries.keys()][0] : null
+    );
+    const countryPrefixes = [...countries.keys()].map((c) => regionPrefix + c);
+    const selectedCountries = countryPrefixes.filter((p) => selectedPrefixes.has(p));
+    const regionInput = regionBox.querySelector("input");
+    regionInput.checked = selectedPrefixes.has(regionPrefix);
+    regionInput.indeterminate =
+      !regionInput.checked && selectedCountries.length > 0;
+    block.appendChild(regionBox);
+
+    // Single-country regions (Brazil, Mexico) don't need a nested list.
+    if (countries.size > 1) {
+      const list = document.createElement("ul");
+      const sortedCountries = [...countries].sort(([a], [b]) =>
+        countryName(a).localeCompare(countryName(b))
+      );
+      for (const [country, count] of sortedCountries) {
+        const li = document.createElement("li");
+        const box = buildFilterCheckbox(
+          regionPrefix + country,
+          countryName(country),
+          count,
+          country
+        );
+        box.querySelector("input").checked =
+          regionInput.checked || selectedPrefixes.has(regionPrefix + country);
+        li.appendChild(box);
+        list.appendChild(li);
+      }
+      block.appendChild(list);
+    }
+
+    container.appendChild(block);
+  }
+}
+
+function buildFilterCheckbox(value, text, count, flagCode) {
+  const label = document.createElement("label");
+  label.className = "filter-checkbox";
+  const input = document.createElement("input");
+  input.type = "checkbox";
+  input.value = value;
+  label.appendChild(input);
+  if (flagCode) {
+    const flag = createFlagElement(flagCode);
+    if (flag) label.appendChild(flag);
+  }
+  const span = document.createElement("span");
+  span.textContent = text;
+  const countSpan = document.createElement("span");
+  countSpan.className = "filter-count";
+  countSpan.textContent = count;
+  label.append(span, countSpan);
+  return label;
+}
+
+function toggleTeamPrefix(prefix, checked) {
+  const isRegion = prefix.length === "team".length + 2;
+  const regionPrefix = prefix.slice(0, "team".length + 2);
+  const countryPrefixes = [
+    ...new Set(
+      [...teamState.values()]
+        .filter((team) => team.login.startsWith(regionPrefix))
+        .map((team) => `team${team.region}${team.country}`)
+    ),
+  ];
+
+  if (isRegion) {
+    for (const p of countryPrefixes) selectedPrefixes.delete(p);
+    if (checked) selectedPrefixes.add(regionPrefix);
+    else selectedPrefixes.delete(regionPrefix);
+  } else {
+    // Unchecking one country of a fully selected region expands the region
+    // into its remaining countries.
+    if (selectedPrefixes.has(regionPrefix)) {
+      selectedPrefixes.delete(regionPrefix);
+      for (const p of countryPrefixes) selectedPrefixes.add(p);
+    }
+    if (checked) selectedPrefixes.add(prefix);
+    else selectedPrefixes.delete(prefix);
+    if (countryPrefixes.every((p) => selectedPrefixes.has(p))) {
+      for (const p of countryPrefixes) selectedPrefixes.delete(p);
+      selectedPrefixes.add(regionPrefix);
+    }
+  }
+  onTeamFilterChange();
+}
+
+function onTeamFilterChange() {
+  writeUrlParam(TEAM_FILTER_PARAM, [...selectedPrefixes].join(","));
+  renderTeamFilter();
+  requestRender(true);
+}
+
+function setupWomenFilter() {
+  const container = document.getElementById("women-filter");
+  if (!container) return;
+  for (const input of container.querySelectorAll("input")) {
+    input.checked = selectedWomen.has(Number(input.value));
+  }
+  container.addEventListener("change", (event) => {
+    const input = event.target;
+    if (!(input instanceof HTMLInputElement)) return;
+    const value = Number(input.value);
+    if (input.checked) selectedWomen.add(value);
+    else selectedWomen.delete(value);
+    writeUrlParam("women", [...selectedWomen].sort().join(","));
+    requestRender(true);
+  });
+}
+
+function setupQualifyToggle() {
+  const checkbox = document.getElementById("qualify-toggle");
+  if (!checkbox) return;
+  checkbox.checked = showQualifiers;
+  checkbox.addEventListener("change", () => {
+    showQualifiers = checkbox.checked;
+    writeUrlParam("qualify", showQualifiers ? "" : "0");
+    renderHeader();
+    requestRender(true);
+  });
+}
+
+function isTeamSelected(team) {
+  if (!selectedPrefixes.size) return true;
+  for (const prefix of selectedPrefixes) {
+    if (team.login.startsWith(prefix)) return true;
+  }
+  return false;
+}
+
+function isWomenSelected(team) {
+  return !selectedWomen.size || selectedWomen.has(Math.min(team.women, 3));
+}
+
+// ---------------------------------------------------------------------------
+// Rendering
+
 function renderHeader() {
   const headerRow = document.getElementById("standings-header");
   headerRow.innerHTML = "";
 
   const baseHeadings = showQualifiers
-    ? ["#", "LatAm", "Team", "Slot (est.)", "Women", "Solved", "Penalty"]
+    ? ["#", "Team", "LatAm", "Slot (est.)", "Women", "Solved", "Penalty"]
     : ["#", "Team", "Women", "Solved", "Penalty"];
-  for (const title of baseHeadings) {
+  for (const title of [...baseHeadings, ...problemIds]) {
     const th = document.createElement("th");
     th.textContent = title;
-    headerRow.appendChild(th);
-  }
-
-  for (const prob of problemIds) {
-    const th = document.createElement("th");
-    th.textContent = prob;
     headerRow.appendChild(th);
   }
 }
@@ -214,51 +423,33 @@ function renderStandings() {
   const latamRank = new Map(ranked.map((team, index) => [team.login, index + 1]));
   const qualifiers = showQualifiers ? estimateQualifiers(ranked) : new Map();
 
-  // Rank is computed over the whole site so filtering only hides rows.
+  // Rank within the selected regions/countries; the women filter only hides
+  // rows so positions stay comparable.
   const teams = ranked
-    .filter((team) => shouldIncludeTeam(team.login))
+    .filter(isTeamSelected)
     .map((team, index) => ({ team, rank: index + 1 }))
-    .filter(({ team }) => team.women >= minWomen);
-  const fragment = document.createDocumentFragment();
+    .filter(({ team }) => isWomenSelected(team));
 
   if (!teams.length) {
-    showPlaceholder("No teams match this filter.");
+    showPlaceholder("No teams match the current filters.");
     return;
   }
 
-  teams.forEach(({ team, rank }) => {
+  const fragment = document.createDocumentFragment();
+  for (const { team, rank } of teams) {
     const tr = document.createElement("tr");
 
     appendCell(tr, "col-rank", rank);
-    if (showQualifiers) {
-      appendCell(tr, "col-rank latam", latamRank.get(team.login));
-    }
-    const teamCell = document.createElement("td");
-    teamCell.classList.add("col-team");
-    const teamName = document.createElement("p");
-    teamName.className = "team-name";
-    teamName.textContent = truncate(team.name, 60);
-    const teamSchool = document.createElement("p");
-    teamSchool.className = "team-school";
-    teamSchool.textContent = truncate(team.school, 50);
-    teamCell.append(teamName, teamSchool);
-    tr.appendChild(teamCell);
+    tr.appendChild(buildTeamCell(team));
 
     if (showQualifiers) {
+      appendCell(tr, "col-latam", latamRank.get(team.login));
       const slot = qualifiers.get(team.login);
-      const slotCell = document.createElement("td");
-      slotCell.className = "col-slot";
-      if (slot) {
-        tr.classList.add("qualified");
-        slotCell.textContent = SLOT_LABELS[slot] ?? slot;
-      } else {
-        slotCell.textContent = "—";
-      }
-      tr.appendChild(slotCell);
+      if (slot) tr.classList.add("qualified");
+      appendCell(tr, "col-slot", slot ? SLOT_LABELS[slot] ?? slot : "—");
     }
 
     tr.appendChild(buildWomenCell(team.women));
-
     appendCell(tr, "col-solved", team.solved);
     appendCell(tr, "col-penalty", team.penalty);
 
@@ -267,7 +458,7 @@ function renderStandings() {
     }
 
     fragment.appendChild(tr);
-  });
+  }
 
   tbody.appendChild(fragment);
 }
@@ -277,6 +468,41 @@ function appendCell(row, className, value) {
   td.className = className;
   td.textContent = value;
   row.appendChild(td);
+}
+
+function buildTeamCell(team) {
+  const td = document.createElement("td");
+  td.className = "col-team";
+  td.title = `${team.name} — ${team.school}`;
+
+  const line = document.createElement("div");
+  line.className = "team-line";
+  const flag = createFlagElement(team.country);
+  if (flag) line.appendChild(flag);
+  const name = document.createElement("p");
+  name.className = "team-name";
+  name.textContent = team.name;
+  line.appendChild(name);
+
+  const school = document.createElement("p");
+  school.className = "team-school";
+  school.textContent = team.school;
+
+  td.append(line, school);
+  return td;
+}
+
+function createFlagElement(countryCode) {
+  if (!/^[a-z]{2}$/.test(countryCode ?? "")) return null;
+  const img = document.createElement("img");
+  img.className = "team-flag";
+  img.src = `${FLAG_CDN_BASE}/${countryCode}.svg`;
+  img.alt = countryName(countryCode);
+  img.loading = "lazy";
+  img.decoding = "async";
+  img.referrerPolicy = "no-referrer";
+  img.addEventListener("error", () => img.remove(), { once: true });
+  return img;
 }
 
 function buildWomenCell(count) {
@@ -307,7 +533,7 @@ function buildProblemCell(problem = {}) {
     td.classList.add("failed");
     td.textContent = `-${problem.wrongAttempts}`;
   } else {
-    td.classList.add("pending");
+    td.classList.add("idle");
     td.textContent = "—";
   }
 
@@ -320,6 +546,9 @@ function compareTeams(a, b) {
   if (a.lastSolve !== b.lastSolve) return a.lastSolve - b.lastSolve;
   return a.name.localeCompare(b.name);
 }
+
+// ---------------------------------------------------------------------------
+// Live runs
 
 function connectSocket() {
   if (!contestMeta) return;
@@ -373,7 +602,9 @@ function processRun(run) {
 }
 
 function recomputeTeam(team) {
-  const runs = [...team.runs.values()].sort((a, b) => a.time_seconds - b.time_seconds || a.id - b.id);
+  const runs = [...team.runs.values()].sort(
+    (a, b) => a.time_seconds - b.time_seconds || a.id - b.id
+  );
 
   team.problems = createProblemState();
   team.solved = 0;
@@ -411,6 +642,9 @@ function recomputeTeam(team) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Helpers
+
 function setStatus(text, style) {
   const pill = document.getElementById("status-pill");
   if (!pill) return;
@@ -429,13 +663,6 @@ function showPlaceholder(text) {
   }" class="placeholder">${text}</td></tr>`;
 }
 
-function buildProblemIds(number = 0) {
-  const baseCode = "A".charCodeAt(0);
-  return Array.from({ length: number }, (_, idx) =>
-    String.fromCharCode(baseCode + idx)
-  );
-}
-
 function formatMinutes(minutes = 0) {
   if (Number.isNaN(minutes)) return "--";
   const h = Math.floor(minutes / 60)
@@ -445,13 +672,45 @@ function formatMinutes(minutes = 0) {
   return `${h}:${m}`;
 }
 
-function truncate(value = "", max = 40) {
-  return value.length > max ? `${value.slice(0, max - 1)}…` : value;
+function regionName(code) {
+  return REGION_NAMES[code] ?? code.toUpperCase();
 }
 
-function shouldIncludeTeam(login = "") {
-  if (!siteFilters.length) return true;
-  return siteFilters.some((re) => re.test(login));
+function countryName(code) {
+  return COUNTRY_NAMES[code] ?? code.toUpperCase();
+}
+
+// Returns null when the parameter is absent, [] for "all".
+function readListParam(name) {
+  const raw = params.get(name);
+  if (raw === null) return null;
+  return raw
+    .split(",")
+    .map((value) => value.trim())
+    .filter((value) => value && value !== "all");
+}
+
+function writeUrlParam(name, value) {
+  const url = new URL(window.location.href);
+  if (value) url.searchParams.set(name, value);
+  else url.searchParams.delete(name);
+  window.history.replaceState(null, "", url);
+}
+
+function readStorage(key) {
+  try {
+    return localStorage.getItem(key);
+  } catch (error) {
+    return null;
+  }
+}
+
+function writeStorage(key, value) {
+  try {
+    localStorage.setItem(key, value);
+  } catch (error) {
+    console.warn("Unable to persist preference", error);
+  }
 }
 
 function requestRender(immediate = false) {
