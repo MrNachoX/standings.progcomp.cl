@@ -18,7 +18,18 @@ const COUNTRY_PARTICIPATION_SLOTS = [
   { country: "ar", teams: 186, slots: 2 },
   { country: "co", teams: 116, slots: 1 },
 ];
-// Fractions carried over from the previous year are unknown; assume 0.
+// Institutions per region over the whole regional cycle, from last year's
+// official slot-assignment script (this year's counts aren't available).
+const REGION_SCHOOLS = new Map([
+  ["br", 233],
+  ["cb", 21],
+  ["ca", 18],
+  ["mx", 140],
+  ["no", 57],
+  ["so", 108],
+]);
+// The fractions to carry over into this year are unknown (that script only
+// has the ones it started from), so assume 0.
 const PREVIOUS_FRACTIONS = {};
 
 export const SLOT_LABELS = {
@@ -60,12 +71,10 @@ const ordinal = (n) =>
  * @param rankedTeams every official team, best first; each has
  *   { login, school, region, country, solved, women }
  * @param names { regionName(code), countryName(code) } for the explanations
- * @param shared optional object reused across calls with the same set of
- *   teams (in any order) to cache order-independent work
  * @returns Map login -> { slot, detail }: slot is a SLOT_LABELS key and
  *   detail explains why this particular team got it
  */
-export function estimateQualifiers(rankedTeams, names = {}, shared = {}) {
+export function estimateQualifiers(rankedTeams, names = {}) {
   const regionName = names.regionName ?? ((code) => code.toUpperCase());
   const countryName = names.countryName ?? ((code) => code.toUpperCase());
   const hostSchools = [...HOST_SCHOOLS].join(", ");
@@ -140,8 +149,7 @@ export function estimateQualifiers(rankedTeams, names = {}, shared = {}) {
   }
 
   // I.4 Geographic representation, up to N teams.
-  shared.schools ??= schoolsByRegion(rankedTeams);
-  const geo = geographicQuotas(shared.schools, slots.size);
+  const geo = geographicQuotas(REGION_SCHOOLS, slots.size);
   for (const [region, quota] of geo.quotas) {
     for (let i = 0; i < quota; i++) {
       const team = best(isNewSchool, byRegion.get(region));
@@ -150,10 +158,11 @@ export function estimateQualifiers(rankedTeams, names = {}, shared = {}) {
         team,
         "geographic",
         `Geographic slot ${i + 1} of ${quota} for ${regionName(region)}: the ` +
-          `${geo.open} slots left up to ${N} are split by number of ` +
-          `institutions (${regionName(region)} has ${geo.schools.get(region)} ` +
-          `of ${geo.total}); best ${regionName(region)} team from an ` +
-          `institution with no qualified team yet.`
+          `${geo.open} slots left up to ${N} are split by institutions ` +
+          `taking part in the regional season (${regionName(region)} has ` +
+          `${geo.schools.get(region)} of ${geo.total}); best ` +
+          `${regionName(region)} team from an institution with no qualified ` +
+          `team yet.`
       );
     }
   }
@@ -253,15 +262,6 @@ function groupBy(items, key) {
   return groups;
 }
 
-function schoolsByRegion(teams) {
-  const sets = new Map();
-  for (const team of teams) {
-    if (!sets.has(team.region)) sets.set(team.region, new Set());
-    sets.get(team.region).add(team.school);
-  }
-  return new Map([...sets].map(([region, set]) => [region, set.size]));
-}
-
 // "Algorithm to assign the Geographic Representation Slots".
 // `schools` maps each region to its number of institutions.
 function geographicQuotas(schools, alreadyAllocated) {
@@ -318,7 +318,7 @@ export function estimateProblemsNeeded(
   team,
   rankedTeams,
   baseline,
-  { minute, maxExtra, wrongPenalty, compare, names, shared = {} }
+  { minute, maxExtra, wrongPenalty, compare, names }
 ) {
   if (baseline.has(team.login)) return null;
 
@@ -346,7 +346,7 @@ export function estimateProblemsNeeded(
     const ranked = [...others];
     ranked.splice(index < 0 ? ranked.length : index, 0, candidate);
 
-    const result = estimateQualifiers(ranked, names, shared);
+    const result = estimateQualifiers(ranked, names);
     const got = result.get(team.login);
     const outcome = got && {
       extra,

@@ -629,17 +629,18 @@ function buildTeamCell(team) {
   return td;
 }
 
+// Flags are background images rather than <img>: the table is rebuilt on
+// every update, and a cached background paints immediately while a new
+// lazy <img> flashes empty first.
 function createFlagElement(countryCode) {
   if (!/^[a-z]{2}$/.test(countryCode ?? "")) return null;
-  const img = document.createElement("img");
-  img.className = "team-flag";
-  img.src = `${FLAG_CDN_BASE}/${countryCode}.svg`;
-  img.alt = countryName(countryCode);
-  img.loading = "lazy";
-  img.decoding = "async";
-  img.referrerPolicy = "no-referrer";
-  img.addEventListener("error", () => img.remove(), { once: true });
-  return img;
+  const flag = document.createElement("span");
+  flag.className = "team-flag";
+  flag.style.backgroundImage = `url("${FLAG_CDN_BASE}/${countryCode}.svg")`;
+  flag.setAttribute("role", "img");
+  flag.setAttribute("aria-label", countryName(countryCode));
+  flag.title = countryName(countryCode);
+  return flag;
 }
 
 // Returns the latest finished results and starts a background refresh when
@@ -680,7 +681,6 @@ function startNeedsJob(ranked, qualifiers, candidates) {
     wrongPenalty: penaltyPerWrongAnswer.value,
     compare: compareTeams,
     names: { regionName, countryName },
-    shared: {},
   };
   const needs = new Map();
   const version = scoreboardVersion;
