@@ -505,7 +505,9 @@ function renderStandings() {
   // Guests are listed among official teams but never take a position.
   const ranked = sorted.filter((team) => !team.guest);
   const latamRank = new Map(ranked.map((team, index) => [team.login, index + 1]));
-  const qualifiers = showQualifiers ? estimateQualifiers(ranked) : new Map();
+  const qualifiers = showQualifiers
+    ? estimateQualifiers(ranked, { regionName, countryName })
+    : new Map();
 
   // Rank within the selected regions/countries; the women filter only hides
   // rows so positions stay comparable.
@@ -530,7 +532,7 @@ function renderStandings() {
 
     if (showQualifiers) {
       appendCell(tr, "col-latam", latamRank.get(team.login) ?? "—");
-      const slot = qualifiers.get(team.login);
+      const { slot, detail } = qualifiers.get(team.login) ?? {};
       if (slot) tr.classList.add("qualified");
       const slotCell = appendCell(
         tr,
@@ -538,7 +540,7 @@ function renderStandings() {
         slot ? SLOT_SHORT_LABELS[slot] ?? slot : "—"
       );
       if (slot) {
-        slotCell.title = SLOT_LABELS[slot] ?? slot;
+        slotCell.title = `${SLOT_LABELS[slot] ?? slot} (estimate)\n${detail}`;
         boldWomenSymbols(slotCell);
       }
     }
